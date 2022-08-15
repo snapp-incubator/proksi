@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"go.uber.org/zap"
 
 	"github.com/anvari1313/proksi/internal/logging"
@@ -17,6 +19,8 @@ import (
 var (
 	mainServiceClient = &http.Client{}
 	testServiceClient = &http.Client{}
+
+	elasticClient *elasticsearch.Client
 )
 
 var (
@@ -40,6 +44,8 @@ func init() {
 }
 
 func main() {
+	var err error
+
 	// Usage Demo
 	if help {
 		flag.Usage()
@@ -54,9 +60,26 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
+	elasticClient, err = elasticsearch.NewDefaultClient()
+	if err != nil {
+		logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
+	}
+
+	esInfo, err := elasticClient.Info()
+	if err != nil {
+		logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
+	}
+
+	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
+
 	http.HandleFunc("/", handler)
 
-	err := http.ListenAndServe(bindAddress, http.DefaultServeMux)
+	logging.L.Info("Starting HTTP server",
+		zap.String("address", bindAddress),
+		zap.String("main_upstream", mainUpstream),
+		zap.String("test_upstream", testUpstream),
+	)
+	err = http.ListenAndServe(bindAddress, http.DefaultServeMux)
 	if err != nil {
 		panic(err)
 	}
@@ -101,25 +124,6 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, err = reqBodyReader.Seek(0, io.SeekStart)
-	if err != nil {
-		logging.L.Error("error in seeking the body reader to the first of the stream", loggingFieldsWithError(err)...)
-		return
-	}
-
-	testReq, err := http.NewRequestWithContext(req.Context(), req.Method, testUpstream+req.URL.String(), reqBodyReader)
-	if err != nil {
-		logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
-		return
-	}
-
-	testReq.Header = req.Header
-	testRes, err := testServiceClient.Do(testReq)
-	if err != nil {
-		logging.L.Error("error in doing the request to the test service", loggingFieldsWithError(err)...)
-		return
-	}
-
 	// TODO: Array in HTTP header values (issue #1)
 	for headerKey, headerValue := range mainRes.Header {
 		if len(headerValue) == 1 {
@@ -134,7 +138,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 	var mainResBodyBuffer bytes.Buffer
 	_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
 	if err != nil {
-		logging.L.Error("error in copying the main service response into the byte buffer", loggingFieldsWithError(err)...)
+		logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
 		return
 	}
 
@@ -145,14 +149,33 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, err = mainResBodyReader.Seek(0, io.SeekStart)
+	_, err = reqBodyReader.Seek(0, io.SeekStart)
 	if err != nil {
-		logging.L.Error("error in seeking to the beginning of the main service response", loggingFieldsWithError(err)...)
+		logging.L.Error("error in seeking the body reader to the first of the stream", loggingFieldsWithError(err)...)
+		return
+	}
+
+	testReq, err := http.NewRequestWithContext(context.Background(), req.Method, testUpstream+req.URL.String(), reqBodyReader)
+	if err != nil {
+		logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
+		return
+	}
+
+	testReq.Header = req.Header
+	testRes, err := testServiceClient.Do(testReq)
+	if err != nil {
+		logging.L.Error("error in doing the request to the test service", loggingFieldsWithError(err)...)
 		return
 	}
 
 	if testRes.StatusCode != mainRes.StatusCode {
 		logging.L.Warn("Different status code from services", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
+		return
+	}
+
+	_, err = mainResBodyReader.Seek(0, io.SeekStart)
+	if err != nil {
+		logging.L.Error("error in seeking to the beginning of the main service response", loggingFieldsWithError(err)...)
 		return
 	}
 
