@@ -68,14 +68,14 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	var bodyBuffer bytes.Buffer
-	_, err := io.Copy(&bodyBuffer, req.Body)
+	var reqBodyBuffer bytes.Buffer
+	_, err := io.Copy(&reqBodyBuffer, req.Body)
 	if err != nil {
 		panic(err)
 	}
 
-	bodyReader := bytes.NewReader(bodyBuffer.Bytes())
-	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, mainServiceBaseURL+req.URL.String(), bodyReader)
+	reqBodyReader := bytes.NewReader(reqBodyBuffer.Bytes())
+	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, mainServiceBaseURL+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the main service", loggingFieldsWithError(err)...)
 		return
@@ -88,13 +88,13 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, err = bodyReader.Seek(0, io.SeekStart)
+	_, err = reqBodyReader.Seek(0, io.SeekStart)
 	if err != nil {
 		logging.L.Error("error in seeking the body reader to the first of the stream", loggingFieldsWithError(err)...)
 		return
 	}
 
-	testReq, err := http.NewRequestWithContext(req.Context(), req.Method, testServiceBaseURL+req.URL.String(), bodyReader)
+	testReq, err := http.NewRequestWithContext(req.Context(), req.Method, testServiceBaseURL+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
 		return
