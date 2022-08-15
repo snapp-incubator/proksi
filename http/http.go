@@ -5,16 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"go.uber.org/zap"
 
 	"github.com/anvari1313/proksi/internal/logging"
@@ -25,7 +21,7 @@ var (
 	mainServiceClient = &http.Client{}
 	testServiceClient = &http.Client{}
 
-	elasticClient *elasticsearch.Client
+	storag storage.Storage
 )
 
 var (
@@ -65,37 +61,21 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
-	elasticClient, err = elasticsearch.NewDefaultClient()
+	es, err := elasticsearch.NewDefaultClient()
 	if err != nil {
 		logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
 	}
 
-	esInfo, err := elasticClient.Info()
+	esInfo, err := es.Info()
 	if err != nil {
 		logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
 	}
 
 	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
 
+	storag = &storage.ElasticStorage{ES: es}
+
 	http.HandleFunc("/", handler)
-
-	http.HandleFunc("/index", func(responseWriter http.ResponseWriter, req *http.Request) {
-		r := esapi.IndexRequest{
-			Index: "test",                                  // Index name
-			Body:  strings.NewReader(`{"title" : "keep"}`), // Document body
-		}
-
-		res, err := r.Do(context.Background(), elasticClient)
-		if err != nil {
-			log.Fatalf("Error getting response: %s", err)
-		}
-		defer res.Body.Close()
-
-		log.Println(res)
-
-		responseWriter.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(responseWriter, "done")
-	})
 
 	err = http.ListenAndServe(":3333", http.DefaultServeMux)
 	if err != nil {
@@ -196,11 +176,6 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if testRes.StatusCode != mainRes.StatusCode {
-		logging.L.Warn("Different status code from services", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		return
-	}
-
 	_, err = mainResBodyReader.Seek(0, io.SeekStart)
 	if err != nil {
 		logging.L.Error("error in seeking to the beginning of the main service response", loggingFieldsWithError(err)...)
@@ -221,6 +196,20 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 	}
 	defer func() { _ = testRes.Body.Close() }()
 
+	if testRes.StatusCode != mainRes.StatusCode {
+		logging.L.Warn("Different status code from services", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
+		err = storag.Store(storage.Log{
+			URL:                    req.URL.String(),
+			Headers:                req.Header,
+			MainUpstreamStatusCode: mainRes.StatusCode,
+			TestUpstreamStatusCode: testRes.StatusCode,
+		})
+		if err != nil {
+			logging.L.Error("Error in logging the request into Storage", loggingFieldsWithError(err)...)
+		}
+		return
+	}
+
 	equalBody, err := JSONBytesEqual(mainResBody, testResBody)
 	if err != nil {
 		logging.L.Error("error in JSON equality check of body request", loggingFieldsWithError(err)...)
@@ -231,25 +220,15 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		logging.L.Info("Equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		l := storage.Log{
+		err = storag.Store(storage.Log{
 			URL:                    req.URL.String(),
 			Headers:                req.Header,
 			MainUpstreamStatusCode: mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
-		}
-		b, _ := json.Marshal(&l)
-
-		now := time.Now()
-		r := esapi.IndexRequest{
-			Index: fmt.Sprintf("%d-%d-%d", now.Year(), now.Month(), now.Day()),
-			Body:  bytes.NewReader(b),
-		}
-
-		res, err := r.Do(context.Background(), elasticClient)
+		})
 		if err != nil {
-			logging.L.Error("Error in logging the request into Elasticsearch", loggingFieldsWithError(err)...)
+			logging.L.Error("Error in logging the request into Storage", loggingFieldsWithError(err)...)
 		}
-		defer func() { _ = res.Body.Close() }()
 	}
 }
 
