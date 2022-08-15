@@ -83,7 +83,8 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 	var reqBodyBuffer bytes.Buffer
 	_, err := io.Copy(&reqBodyBuffer, req.Body)
 	if err != nil {
-		panic(err)
+		logging.L.Error("error in reading the request body", loggingFieldsWithError(err)...)
+		return
 	}
 
 	reqBodyReader := bytes.NewReader(reqBodyBuffer.Bytes())
