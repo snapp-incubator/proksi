@@ -15,21 +15,25 @@ import (
 )
 
 var (
-	mainServiceBaseURL = "http://localhost:3000"
-	testServiceBaseURL = "http://localhost:8080"
-
 	mainServiceClient = &http.Client{}
 	testServiceClient = &http.Client{}
 )
 
 var (
-	help       bool   // Indicates whether to show the help or not
-	configPath string // Path of config file
+	help        bool   // Indicates whether to show the help or not
+	configPath  string // Path of config file
+	bindAddress string // Address of the HTTP server to bind
+
+	mainUpstream string // Main upstream backend
+	testUpstream string // Test upstream backend
 )
 
 func init() {
 	flag.BoolVar(&help, "help", false, "Show help")
-	flag.StringVar(&configPath, "config", "", "path of config file")
+	flag.StringVar(&configPath, "config", "", "The path of config file")
+	flag.StringVar(&bindAddress, "bind", ":3333", "Address of the HTTP server to be bind to")
+	flag.StringVar(&mainUpstream, "main-upstream", "", "Address of the main service upstream backend")
+	flag.StringVar(&testUpstream, "test-upstream", "", "Address of the test service upstream backend")
 
 	// Parse the terminal flags
 	flag.Parse()
@@ -42,9 +46,17 @@ func main() {
 		return
 	}
 
+	if mainUpstream == "" {
+		logging.L.Fatal("Main upstream backend can not be empty.")
+	}
+
+	if testUpstream == "" {
+		logging.L.Fatal("Test upstream backend can not be empty.")
+	}
+
 	http.HandleFunc("/", handler)
 
-	err := http.ListenAndServe(":3333", http.DefaultServeMux)
+	err := http.ListenAndServe(bindAddress, http.DefaultServeMux)
 	if err != nil {
 		panic(err)
 	}
@@ -75,7 +87,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	reqBodyReader := bytes.NewReader(reqBodyBuffer.Bytes())
-	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, mainServiceBaseURL+req.URL.String(), reqBodyReader)
+	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, mainUpstream+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the main service", loggingFieldsWithError(err)...)
 		return
@@ -94,7 +106,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	testReq, err := http.NewRequestWithContext(req.Context(), req.Method, testServiceBaseURL+req.URL.String(), reqBodyReader)
+	testReq, err := http.NewRequestWithContext(req.Context(), req.Method, testUpstream+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
 		return
@@ -167,8 +179,6 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		logging.L.Info("Equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		//fmt.Println(string(mainResBody))
-		//fmt.Println(string(testResBody))
 	}
 }
 
