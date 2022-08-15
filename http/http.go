@@ -5,15 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"go.uber.org/zap"
 
 	"github.com/anvari1313/proksi/internal/logging"
+	"github.com/anvari1313/proksi/internal/storage"
 )
 
 var (
@@ -73,6 +78,29 @@ func main() {
 	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
 
 	http.HandleFunc("/", handler)
+
+	http.HandleFunc("/index", func(responseWriter http.ResponseWriter, req *http.Request) {
+		r := esapi.IndexRequest{
+			Index: "test",                                  // Index name
+			Body:  strings.NewReader(`{"title" : "keep"}`), // Document body
+		}
+
+		res, err := r.Do(context.Background(), elasticClient)
+		if err != nil {
+			log.Fatalf("Error getting response: %s", err)
+		}
+		defer res.Body.Close()
+
+		log.Println(res)
+
+		responseWriter.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(responseWriter, "done")
+	})
+
+	err = http.ListenAndServe(":3333", http.DefaultServeMux)
+	if err != nil {
+		panic(err)
+	}
 
 	logging.L.Info("Starting HTTP server",
 		zap.String("address", bindAddress),
@@ -203,6 +231,25 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		logging.L.Info("Equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
+		l := storage.Log{
+			URL:                    req.URL.String(),
+			Headers:                req.Header,
+			MainUpstreamStatusCode: mainRes.StatusCode,
+			TestUpstreamStatusCode: testRes.StatusCode,
+		}
+		b, _ := json.Marshal(&l)
+
+		now := time.Now()
+		r := esapi.IndexRequest{
+			Index: fmt.Sprintf("%d-%d-%d", now.Year(), now.Month(), now.Day()),
+			Body:  bytes.NewReader(b),
+		}
+
+		res, err := r.Do(context.Background(), elasticClient)
+		if err != nil {
+			logging.L.Error("Error in logging the request into Elasticsearch", loggingFieldsWithError(err)...)
+		}
+		defer func() { _ = res.Body.Close() }()
 	}
 }
 
