@@ -9,5 +9,5 @@ var (
 )
 
 func init() {
-	L, _ = zap.NewProduction()
+	L, _ = zap.NewProduction(zap.WithCaller(false))
 }
