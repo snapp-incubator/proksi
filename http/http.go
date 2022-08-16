@@ -31,6 +31,9 @@ var (
 
 	mainUpstream string // Main upstream backend
 	testUpstream string // Test upstream backend
+
+	elasticUsername string // Elasticsearch username
+	elasticPassword string // Elasticsearch password
 )
 
 func init() {
@@ -39,6 +42,8 @@ func init() {
 	flag.StringVar(&bindAddress, "bind", ":3333", "Address of the HTTP server to be bind to")
 	flag.StringVar(&mainUpstream, "main-upstream", "", "Address of the main service upstream backend")
 	flag.StringVar(&testUpstream, "test-upstream", "", "Address of the test service upstream backend")
+	flag.StringVar(&elasticUsername, "elastic-username", "", "Elasticsearch username")
+	flag.StringVar(&elasticPassword, "elastic-password", "", "Elasticsearch password")
 
 	// Parse the terminal flags
 	flag.Parse()
@@ -61,7 +66,11 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
-	es, err := elasticsearch.NewDefaultClient()
+	elasticConfig := elasticsearch.Config{
+		Username: elasticUsername,
+		Password: elasticPassword,
+	}
+	es, err := elasticsearch.NewClient(elasticConfig)
 	if err != nil {
 		logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
 	}
