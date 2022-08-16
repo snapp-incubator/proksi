@@ -86,11 +86,6 @@ func main() {
 
 	http.HandleFunc("/", handler)
 
-	err = http.ListenAndServe(":3333", http.DefaultServeMux)
-	if err != nil {
-		panic(err)
-	}
-
 	logging.L.Info("Starting HTTP server",
 		zap.String("address", bindAddress),
 		zap.String("main_upstream", mainUpstream),
@@ -98,7 +93,7 @@ func main() {
 	)
 	err = http.ListenAndServe(bindAddress, http.DefaultServeMux)
 	if err != nil {
-		panic(err)
+		logging.L.Fatal("Error in starting the HTTP server", zap.Error(err))
 	}
 }
 
