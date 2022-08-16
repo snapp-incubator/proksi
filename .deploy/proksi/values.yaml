@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   registry: ghcr.io
   repository: anvari1313/proksi
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
@@ -85,4 +85,13 @@ tolerations: []
 affinity: {}
 
 # Configs
-elasticsearchURL: elastic:9200
+elasticsearch:
+  url: http://elastic-http:9200
+  username: ""
+  password: ""
+
+upstreams:
+  main:
+    url: "http://localhost:8080"
+  test:
+    url: "http://localhost:8081"

@@ -33,10 +33,21 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/app/proksi-http", "-bind", ":{{ .Values.service.containerPort }}", "-main-upstream", "http://localhost:8080", "-test-upstream", "http://localhost:8080"]
+          command:
+            - "/app/proksi-http"
+            - "-bind"
+            - ":{{ .Values.service.containerPort }}"
+            - "-main-upstream"
+            - {{ .Values.upstreams.main.url | quote }}
+            - "-test-upstream"
+            - {{ .Values.upstreams.test.url | quote }}
+            - "-elastic-username"
+            - {{ .Values.elasticsearch.username | quote }}
+            - "-elastic-password"
+            - {{ .Values.elasticsearch.password | quote }}
           env:
             - name: ELASTICSEARCH_URL
-              value: {{ .Values.elasticsearchURL }}
+              value: {{ .Values.elasticsearch.url }}
           ports:
             - name: http
               containerPort: {{ .Values.service.containerPort }}
