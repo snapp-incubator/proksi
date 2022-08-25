@@ -22,7 +22,7 @@ var (
 	mainServiceClient = &http.Client{}
 	testServiceClient = &http.Client{}
 
-	storag storage.Storage
+	strg storage.Storage
 )
 
 var (
@@ -73,7 +73,7 @@ func main() {
 
 	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
 
-	storag = &storage.ElasticStorage{ES: es}
+	strg = &storage.ElasticStorage{ES: es}
 
 	http.HandleFunc("/", handler)
 
@@ -193,7 +193,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 
 	if testRes.StatusCode != mainRes.StatusCode {
 		logging.L.Warn("Different status code from services", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		err = storag.Store(storage.Log{
+		err = strg.Store(storage.Log{
 			URL:                    req.URL.String(),
 			Headers:                req.Header,
 			MainUpstreamStatusCode: mainRes.StatusCode,
@@ -215,7 +215,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		logging.L.Info("Equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		err = storag.Store(storage.Log{
+		err = strg.Store(storage.Log{
 			URL:                    req.URL.String(),
 			Headers:                req.Header,
 			MainUpstreamStatusCode: mainRes.StatusCode,
