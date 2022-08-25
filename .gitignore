@@ -93,3 +93,7 @@ config.yaml
 config.yml
 config.*.yaml
 !config.example.yaml
+
+# Helm chart values ignorance
+values.*.yaml
+!values.yaml
