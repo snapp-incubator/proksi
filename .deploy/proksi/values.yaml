@@ -86,7 +86,7 @@ affinity: {}
 
 # Configs
 elasticsearch:
-  url: http://elastic-http:9200
+  addresses: ["http://elastic-http:9200"]
   username: ""
   password: ""
 
