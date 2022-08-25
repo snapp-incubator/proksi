@@ -5,6 +5,7 @@ import (
 )
 
 var (
+	// L is the default logger of the application
 	L *zap.Logger
 )
 

@@ -14,11 +14,11 @@ var (
 	k = koanf.New(".")
 
 	// HTTP is the config for Proksi HTTP
-	HTTP *httpConfig
+	HTTP *HTTPConfig
 )
 
-// httpConfig represent config of the Proksi HTTP.
-type httpConfig struct {
+// HTTPConfig represent config of the Proksi HTTP.
+type HTTPConfig struct {
 	Bind          string        `koanf:"bind"`
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
@@ -32,14 +32,14 @@ type httpUpstream struct {
 }
 
 // Load function will load the file located in path and return the parsed config. This function will panic on errors
-func Load(path string) *httpConfig {
+func Load(path string) *HTTPConfig {
 	// Load YAML config and merge into the previously loaded config.
 	err := k.Load(file.Provider(path), yaml.Parser())
 	if err != nil {
 		logging.L.Fatal("error in loading the config file", zap.Error(err))
 	}
 
-	var c httpConfig
+	var c HTTPConfig
 	err = k.Unmarshal("", &c)
 	if err != nil {
 		logging.L.Fatal("error in unmarshalling the config file", zap.Error(err))

@@ -1,5 +1,6 @@
 package storage
 
+// Log defines the structure of records storing in Storage as log of requests
 type Log struct {
 	URL                    string              `json:"url"`
 	Headers                map[string][]string `json:"headers"`

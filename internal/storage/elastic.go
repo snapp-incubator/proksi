@@ -11,14 +11,14 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
+// ElasticStorage is the backend Storage interface that works with Elasticsearch
 type ElasticStorage struct {
 	ES *elasticsearch.Client
 }
 
+// Store is the action of storing
 func (s ElasticStorage) Store(l Log) error {
-
 	b, _ := json.Marshal(&l)
-
 	now := time.Now()
 	r := esapi.IndexRequest{
 		Index: fmt.Sprintf("%d-%d-%d", now.Year(), now.Month(), now.Day()),

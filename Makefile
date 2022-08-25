@@ -3,3 +3,8 @@ build-http:
 
 test:
 	go test ./...
+
+lint:
+	golint ./...
+
+check-suite: test lint
