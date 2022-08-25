@@ -58,8 +58,9 @@ func main() {
 	}
 
 	elasticConfig := elasticsearch.Config{
-		Username: c.Elasticsearch.Username,
-		Password: c.Elasticsearch.Password,
+		Addresses: c.Elasticsearch.Addresses,
+		Username:  c.Elasticsearch.Username,
+		Password:  c.Elasticsearch.Password,
 	}
 	es, err := elasticsearch.NewClient(elasticConfig)
 	if err != nil {
