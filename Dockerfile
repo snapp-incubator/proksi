@@ -12,16 +12,12 @@ COPY go.mod go.sum /src/
 RUN go mod download
 
 COPY . /src
-RUN CGO_ENABLED=0 go build -a -installsuffix cgo -o proksi-http ./http
+RUN make build-http
 
 FROM debian:11.4-slim
 
-RUN mkdir -p /app && \
-    chgrp -R 0 /app && \
-    chmod -R g=u /app
-
 WORKDIR /app
 
-COPY --from=build /src/proksi-http /app
+COPY --from=build /src/proksi-http /usr/local/bin/
 
-CMD ["./proksi-http", "-main-upstream", "http://localhost:8080", "-test-upstream", "http://localhost:8081"]
+CMD ["/usr/local/bin/proksi-http"]
