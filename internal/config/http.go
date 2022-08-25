@@ -12,6 +12,9 @@ import (
 var (
 	// k is the global koanf instance. Use "." as the key path delimiter.
 	k = koanf.New(".")
+
+	// HTTP is the config for Proksi HTTP
+	HTTP *httpConfig
 )
 
 // httpConfig represent config of the Proksi HTTP.
@@ -42,5 +45,6 @@ func Load(path string) *httpConfig {
 		logging.L.Fatal("error in unmarshalling the config file", zap.Error(err))
 	}
 
+	HTTP = &c
 	return &c
 }
