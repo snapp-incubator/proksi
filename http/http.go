@@ -13,6 +13,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 	"go.uber.org/zap"
 
+	"github.com/anvari1313/proksi/internal/config"
 	"github.com/anvari1313/proksi/internal/logging"
 	"github.com/anvari1313/proksi/internal/storage"
 )
@@ -25,25 +26,13 @@ var (
 )
 
 var (
-	help        bool   // Indicates whether to show the help or not
-	configPath  string // Path of config file
-	bindAddress string // Address of the HTTP server to bind
-
-	mainUpstream string // Main upstream backend
-	testUpstream string // Test upstream backend
-
-	elasticUsername string // Elasticsearch username
-	elasticPassword string // Elasticsearch password
+	help       bool   // Indicates whether to show the help or not
+	configPath string // Path of config file
 )
 
 func init() {
 	flag.BoolVar(&help, "help", false, "Show help")
 	flag.StringVar(&configPath, "config", "", "The path of config file")
-	flag.StringVar(&bindAddress, "bind", ":3333", "Address of the HTTP server to be bind to")
-	flag.StringVar(&mainUpstream, "main-upstream", "", "Address of the main service upstream backend")
-	flag.StringVar(&testUpstream, "test-upstream", "", "Address of the test service upstream backend")
-	flag.StringVar(&elasticUsername, "elastic-username", "", "Elasticsearch username")
-	flag.StringVar(&elasticPassword, "elastic-password", "", "Elasticsearch password")
 
 	// Parse the terminal flags
 	flag.Parse()
@@ -58,17 +47,19 @@ func main() {
 		return
 	}
 
-	if mainUpstream == "" {
+	c := config.Load(configPath)
+
+	if c.Upstreams.Main.Address == "" {
 		logging.L.Fatal("Main upstream backend can not be empty.")
 	}
 
-	if testUpstream == "" {
+	if c.Upstreams.Test.Address == "" {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
 	elasticConfig := elasticsearch.Config{
-		Username: elasticUsername,
-		Password: elasticPassword,
+		Username: c.Elasticsearch.Username,
+		Password: c.Elasticsearch.Password,
 	}
 	es, err := elasticsearch.NewClient(elasticConfig)
 	if err != nil {
@@ -87,11 +78,11 @@ func main() {
 	http.HandleFunc("/", handler)
 
 	logging.L.Info("Starting HTTP server",
-		zap.String("address", bindAddress),
-		zap.String("main_upstream", mainUpstream),
-		zap.String("test_upstream", testUpstream),
+		zap.String("address", c.Bind),
+		zap.String("main_upstream", c.Upstreams.Main.Address),
+		zap.String("test_upstream", c.Upstreams.Main.Address),
 	)
-	err = http.ListenAndServe(bindAddress, http.DefaultServeMux)
+	err = http.ListenAndServe(c.Bind, http.DefaultServeMux)
 	if err != nil {
 		logging.L.Fatal("Error in starting the HTTP server", zap.Error(err))
 	}
@@ -123,7 +114,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	reqBodyReader := bytes.NewReader(reqBodyBuffer.Bytes())
-	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, mainUpstream+req.URL.String(), reqBodyReader)
+	mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, config.HTTP.Upstreams.Main.Address+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the main service", loggingFieldsWithError(err)...)
 		return
@@ -167,7 +158,7 @@ func handler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	testReq, err := http.NewRequestWithContext(context.Background(), req.Method, testUpstream+req.URL.String(), reqBodyReader)
+	testReq, err := http.NewRequestWithContext(context.Background(), req.Method, config.HTTP.Upstreams.Test.Address+req.URL.String(), reqBodyReader)
 	if err != nil {
 		logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
 		return
