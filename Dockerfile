@@ -16,8 +16,6 @@ RUN make build-http
 
 FROM debian:11.4-slim
 
-WORKDIR /app
-
 COPY --from=build /src/proksi-http /usr/local/bin/
 
 CMD ["/usr/local/bin/proksi-http"]
