@@ -7,4 +7,4 @@ test:
 lint:
 	golint ./...
 
-check-suite: test lint
+check-suite: test
