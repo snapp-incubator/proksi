@@ -13,6 +13,10 @@ upstreams:
 
 # Elasticsearch storage config params
 elasticsearch:
-  addresses: ["elastic1", "elastic2"]
-  username: ""
-  password: ""
+  addresses: [ "127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
+  username: ""                    # Username for HTTP Basic Authentication.
+  password: ""                    # Password for HTTP Basic Authentication.
+  cloud_id: ""                    # Endpoint for the Elastic Service (https://elastic.co/cloud).
+  api_key: ""                     # Base64-encoded token for authorization; if set, overrides username/password and service token.
+  service_token: ""               # Service token for authorization; if set, overrides username/password.
+  certificate_fingerprint: ""     # SHA256 hex fingerprint given by Elasticsearch on first launch.

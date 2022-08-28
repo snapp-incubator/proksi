@@ -21,9 +21,13 @@ var (
 var defaultHTTP = HTTPConfig{
 	Bind: "0.0.0.0:9090",
 	Elasticsearch: Elasticsearch{
-		Addresses: []string{"::9200"},
-		Username:  "",
-		Password:  "",
+		Addresses:              []string{"::9200"},
+		Username:               "",
+		Password:               "",
+		CloudID:                "",
+		APIKey:                 "",
+		ServiceToken:           "",
+		CertificateFingerprint: "",
 	},
 	Upstreams: struct {
 		Main httpUpstream `koanf:"main"`
