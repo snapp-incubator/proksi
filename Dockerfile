@@ -4,7 +4,7 @@ RUN mkdir -p /src
 
 WORKDIR /src
 
-COPY go.mod go.sum /src/
+COPY go.mod go.sum Makefile /src/
 RUN make mod
 
 COPY . /src
