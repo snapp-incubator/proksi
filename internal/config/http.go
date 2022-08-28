@@ -4,6 +4,7 @@ import (
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/structs"
 	"go.uber.org/zap"
 
 	"github.com/anvari1313/proksi/internal/logging"
@@ -16,6 +17,22 @@ var (
 	// HTTP is the config for Proksi HTTP
 	HTTP *HTTPConfig
 )
+
+var defaultHTTP = HTTPConfig{
+	Bind: "0.0.0.0:9090",
+	Elasticsearch: Elasticsearch{
+		Addresses: []string{"::9200"},
+		Username:  "",
+		Password:  "",
+	},
+	Upstreams: struct {
+		Main httpUpstream `koanf:"main"`
+		Test httpUpstream `koanf:"test"`
+	}{
+		Main: httpUpstream{Address: "127.0.0.1:8080"},
+		Test: httpUpstream{Address: "127.0.0.1:8081"},
+	},
+}
 
 // HTTPConfig represent config of the Proksi HTTP.
 type HTTPConfig struct {
@@ -33,8 +50,14 @@ type httpUpstream struct {
 
 // Load function will load the file located in path and return the parsed config. This function will panic on errors
 func Load(path string) *HTTPConfig {
+	// Load default config in the beginning
+	err := k.Load(structs.Provider(defaultHTTP, "koanf"), nil)
+	if err != nil {
+		logging.L.Fatal("error in loading the default config", zap.Error(err))
+	}
+
 	// Load YAML config and merge into the previously loaded config.
-	err := k.Load(file.Provider(path), yaml.Parser())
+	err = k.Load(file.Provider(path), yaml.Parser())
 	if err != nil {
 		logging.L.Fatal("error in loading the config file", zap.Error(err))
 	}
