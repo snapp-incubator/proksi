@@ -1,4 +1,4 @@
-module github.com/anvari1313/proksi
+module github.com/snapp-incubator/proksi
 
 go 1.18
 

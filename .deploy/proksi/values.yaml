@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   registry: ghcr.io
-  repository: anvari1313/proksi
+  repository: snapp-incubator/proksi
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""

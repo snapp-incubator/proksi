@@ -7,7 +7,7 @@ import (
 	"github.com/knadh/koanf/providers/structs"
 	"go.uber.org/zap"
 
-	"github.com/anvari1313/proksi/internal/logging"
+	"github.com/snapp-incubator/proksi/internal/logging"
 )
 
 var (

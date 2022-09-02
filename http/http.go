@@ -13,9 +13,9 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 	"go.uber.org/zap"
 
-	"github.com/anvari1313/proksi/internal/config"
-	"github.com/anvari1313/proksi/internal/logging"
-	"github.com/anvari1313/proksi/internal/storage"
+	"github.com/snapp-incubator/proksi/internal/config"
+	"github.com/snapp-incubator/proksi/internal/logging"
+	"github.com/snapp-incubator/proksi/internal/storage"
 )
 
 var (
