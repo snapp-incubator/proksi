@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"flag"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"reflect"
 	"strings"
 
@@ -80,17 +83,35 @@ func main() {
 
 	strg = &storage.ElasticStorage{ES: es}
 
-	http.HandleFunc("/", new(server).handle)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", new(server).handle)
 
-	logging.L.Info("Starting HTTP server",
-		zap.String("address", c.Bind),
-		zap.String("main_upstream", c.Upstreams.Main.Address),
-		zap.String("test_upstream", c.Upstreams.Test.Address),
-	)
-	err = http.ListenAndServe(c.Bind, http.DefaultServeMux)
-	if err != nil {
-		logging.L.Fatal("Error in starting the HTTP server", zap.Error(err))
+	srv := &http.Server{
+		Addr:    c.Bind,
+		Handler: mux,
 	}
+
+	go func() {
+		logging.L.Info("Starting HTTP server",
+			zap.String("address", c.Bind),
+			zap.String("main_upstream", c.Upstreams.Main.Address),
+			zap.String("test_upstream", c.Upstreams.Test.Address),
+		)
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("HTTP server ListenAndServe Error: %v", err)
+		}
+	}()
+
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt)
+	<-sigint
+
+	logging.L.Debug("Closing HTTP connections")
+	if err := srv.Shutdown(context.Background()); err != nil {
+		logging.L.Error("Error in shutting down the HTTP server", zap.Error(err))
+	}
+
+	logging.L.Info("HTTP server is shut down")
 }
 
 type server struct{}
