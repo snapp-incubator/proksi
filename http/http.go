@@ -85,7 +85,7 @@ func main() {
 	logging.L.Info("Starting HTTP server",
 		zap.String("address", c.Bind),
 		zap.String("main_upstream", c.Upstreams.Main.Address),
-		zap.String("test_upstream", c.Upstreams.Main.Address),
+		zap.String("test_upstream", c.Upstreams.Test.Address),
 	)
 	err = http.ListenAndServe(c.Bind, http.DefaultServeMux)
 	if err != nil {
