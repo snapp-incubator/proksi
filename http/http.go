@@ -83,8 +83,19 @@ func main() {
 
 	strg = &storage.ElasticStorage{ES: es}
 
+	jobs := make(chan Job, c.Worker.QueueSize)
+
+	for i := uint(0); i < c.Worker.Count; i++ {
+		go func() {
+			for job := range jobs {
+				job.Do()
+			}
+		}()
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", new(server).handle)
+	s := &server{job: jobs}
+	mux.HandleFunc("/", s.handle)
 
 	srv := &http.Server{
 		Addr:    c.Bind,
@@ -114,7 +125,9 @@ func main() {
 	logging.L.Info("HTTP server is shut down")
 }
 
-type server struct{}
+type server struct {
+	job chan Job
+}
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	loggingFieldsWithError := func(err error) []zap.Field {
@@ -180,81 +193,14 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	go func() {
-		_, err = reqBodyReader.Seek(0, io.SeekStart)
-		if err != nil {
-			logging.L.Error("error in seeking the body reader to the first of the stream", loggingFieldsWithError(err)...)
-			return
-		}
-
-		testReq, err := http.NewRequestWithContext(context.Background(), req.Method, config.HTTP.Upstreams.Test.Address+req.URL.String(), reqBodyReader)
-		if err != nil {
-			logging.L.Error("error in creating the request to the test service", loggingFieldsWithError(err)...)
-			return
-		}
-
-		testReq.Header = req.Header
-		testRes, err := testServiceClient.Do(testReq)
-		if err != nil {
-			logging.L.Error("error in doing the request to the test service", loggingFieldsWithError(err)...)
-			return
-		}
-
-		_, err = mainResBodyReader.Seek(0, io.SeekStart)
-		if err != nil {
-			logging.L.Error("error in seeking to the beginning of the main service response", loggingFieldsWithError(err)...)
-			return
-		}
-
-		mainResBody, err := io.ReadAll(mainResBodyReader)
-		if err != nil {
-			logging.L.Error("error in reading the body request of main service", loggingFieldsWithError(err)...)
-			return
-		}
-		defer func() { _ = mainRes.Body.Close() }()
-
-		testResBody, err := io.ReadAll(testRes.Body)
-		if err != nil {
-			logging.L.Error("error in reading the body request of test service", loggingFieldsWithError(err)...)
-			return
-		}
-		defer func() { _ = testRes.Body.Close() }()
-
-		if testRes.StatusCode != mainRes.StatusCode {
-			logging.L.Warn("Different status code from services", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-			err = strg.Store(storage.Log{
-				URL:                    req.URL.String(),
-				Headers:                req.Header,
-				MainUpstreamStatusCode: mainRes.StatusCode,
-				TestUpstreamStatusCode: testRes.StatusCode,
-			})
-			if err != nil {
-				logging.L.Error("Error in logging the request into Storage", loggingFieldsWithError(err)...)
-			}
-			return
-		}
-
-		equalBody, err := JSONBytesEqual(mainResBody, testResBody)
-		if err != nil {
-			logging.L.Error("error in JSON equality check of body request", loggingFieldsWithError(err)...)
-			return
-		}
-
-		if equalBody {
-			logging.L.Info("Equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-		} else {
-			logging.L.Warn("NOT equal body response", loggingFields(mainRes.StatusCode, testRes.StatusCode)...)
-			err = strg.Store(storage.Log{
-				URL:                    req.URL.String(),
-				Headers:                req.Header,
-				MainUpstreamStatusCode: mainRes.StatusCode,
-				TestUpstreamStatusCode: testRes.StatusCode,
-			})
-			if err != nil {
-				logging.L.Error("Error in logging the request into Storage", loggingFieldsWithError(err)...)
-			}
-		}
-	}()
+	s.job <- &upstreamTestJob{
+		req:                    req,
+		reqBodyReader:          reqBodyReader,
+		loggingFieldsWithError: loggingFieldsWithError,
+		loggingFields:          loggingFields,
+		mainRes:                mainRes,
+		mainResBodyReader:      mainResBodyReader,
+	}
 }
 
 // JSONBytesEqual compares the JSON in two byte slices.
@@ -269,4 +215,95 @@ func JSONBytesEqual(a, b []byte) (bool, error) {
 	}
 
 	return reflect.DeepEqual(json2, json1), nil
+}
+
+type Job interface {
+	Do()
+}
+
+type upstreamTestJob struct {
+	req           *http.Request
+	reqBodyReader *bytes.Reader
+
+	loggingFieldsWithError func(err error) []zap.Field
+	loggingFields          func(mainStatusCode, testStatusCode int) []zap.Field
+
+	mainRes           *http.Response
+	mainResBodyReader *bytes.Reader
+}
+
+func (j *upstreamTestJob) Do() {
+	_, err := j.reqBodyReader.Seek(0, io.SeekStart)
+	if err != nil {
+		logging.L.Error("error in seeking the body reader to the first of the stream", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	testReq, err := http.NewRequestWithContext(context.Background(), j.req.Method, config.HTTP.Upstreams.Test.Address+j.req.URL.String(), j.reqBodyReader)
+	if err != nil {
+		logging.L.Error("error in creating the request to the test service", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	testReq.Header = j.req.Header
+	testRes, err := testServiceClient.Do(testReq)
+	if err != nil {
+		logging.L.Error("error in doing the request to the test service", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	_, err = j.mainResBodyReader.Seek(0, io.SeekStart)
+	if err != nil {
+		logging.L.Error("error in seeking to the beginning of the main service response", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	mainResBody, err := io.ReadAll(j.mainResBodyReader)
+	if err != nil {
+		logging.L.Error("error in reading the body request of main service", j.loggingFieldsWithError(err)...)
+		return
+	}
+	defer func() { _ = j.mainRes.Body.Close() }()
+
+	testResBody, err := io.ReadAll(testRes.Body)
+	if err != nil {
+		logging.L.Error("error in reading the body request of test service", j.loggingFieldsWithError(err)...)
+		return
+	}
+	defer func() { _ = testRes.Body.Close() }()
+
+	if testRes.StatusCode != j.mainRes.StatusCode {
+		logging.L.Warn("Different status code from services", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+		err = strg.Store(storage.Log{
+			URL:                    j.req.URL.String(),
+			Headers:                j.req.Header,
+			MainUpstreamStatusCode: j.mainRes.StatusCode,
+			TestUpstreamStatusCode: testRes.StatusCode,
+		})
+		if err != nil {
+			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
+		}
+		return
+	}
+
+	equalBody, err := JSONBytesEqual(mainResBody, testResBody)
+	if err != nil {
+		logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	if equalBody {
+		logging.L.Info("Equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+	} else {
+		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+		err = strg.Store(storage.Log{
+			URL:                    j.req.URL.String(),
+			Headers:                j.req.Header,
+			MainUpstreamStatusCode: j.mainRes.StatusCode,
+			TestUpstreamStatusCode: testRes.StatusCode,
+		})
+		if err != nil {
+			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
+		}
+	}
 }

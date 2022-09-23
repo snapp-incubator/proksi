@@ -19,6 +19,11 @@ data:
       test:
         address: {{ .Values.upstreams.test.url | quote }}
 
+    # Worker pool configurations
+    worker:
+      count: {{ .Values.worker.count }}                  # Number of go-routines of the pool
+      queue_size: {{ .Values.worker.queueSize }}         # Size of the queue (buffered channel size)
+
     # Elasticsearch storage config params
     elasticsearch:
       addresses: {{- range.Values.elasticsearch.addresses }}
