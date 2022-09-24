@@ -11,6 +11,11 @@ upstreams:
   test:
     address: "http://localhost:8081"
 
+# Worker pool configurations
+worker:
+  count: 50               # Number of go-routines of the pool
+  queue_size: 2048        # Size of the queue (buffered channel size)
+
 # Elasticsearch storage config params
 elasticsearch:
   addresses: [ "127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.

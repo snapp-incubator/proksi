@@ -95,3 +95,7 @@ upstreams:
     url: "http://localhost:8080"
   test:
     url: "http://localhost:8081"
+
+worker:
+  count: 50
+  queueSize: 2048
