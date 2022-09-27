@@ -20,6 +20,10 @@ var (
 
 var defaultHTTP = HTTPConfig{
 	Bind: "0.0.0.0:9090",
+	Metrics: metric{
+		Enabled: true,
+		Bind:    "0.0.0.0:9001",
+	},
 	Elasticsearch: Elasticsearch{
 		Addresses:              []string{"::9200"},
 		Username:               "",
@@ -45,6 +49,7 @@ var defaultHTTP = HTTPConfig{
 // HTTPConfig represent config of the Proksi HTTP.
 type HTTPConfig struct {
 	Bind          string        `koanf:"bind"`
+	Metrics       metric        `koanf:"metrics"`
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
 		Main httpUpstream `koanf:"main"`
