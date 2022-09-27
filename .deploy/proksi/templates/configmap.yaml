@@ -11,8 +11,8 @@ data:
 
     # Config of exposing Prometheus metrics
     metrics:
-      enabled: true
-      bind: "0.0.0.0:9001"
+      enabled: {{ .Values.metrics.enabled }}
+      bind: "0.0.0.0:{{ .Values.metrics.containerPort }}"
 
     # List of upstreams to proxy the request to them
     upstreams:
