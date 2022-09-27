@@ -11,3 +11,8 @@ type Elasticsearch struct {
 	ServiceToken           string `koanf:"service_token"`           // Service token for authorization; if set, overrides username/password.
 	CertificateFingerprint string `koanf:"certificate_fingerprint"` // SHA256 hex fingerprint given by Elasticsearch on first launch.
 }
+
+type metric struct {
+	Enabled bool   `koanf:"enabled"` // Enablement of the metric exposure
+	Bind    string `koanf:"bind"`    // Address of the http server
+}

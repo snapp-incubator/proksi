@@ -11,13 +11,16 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
 	"github.com/snapp-incubator/proksi/internal/config"
 	"github.com/snapp-incubator/proksi/internal/logging"
+	"github.com/snapp-incubator/proksi/internal/metrics"
 	"github.com/snapp-incubator/proksi/internal/storage"
 )
 
@@ -113,6 +116,10 @@ func main() {
 		}
 	}()
 
+	if c.Metrics.Enabled {
+		go metrics.InitializeHTTP(c.Metrics.Bind)
+	}
+
 	sigint := make(chan os.Signal, 1)
 	signal.Notify(sigint, os.Interrupt)
 	<-sigint
@@ -162,11 +169,16 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	mainReq.Header = req.Header
+	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(req.Method, "main_upstream"))
 	mainRes, err := mainServiceClient.Do(mainReq)
+	t.ObserveDuration()
 	if err != nil {
+		metrics.HTTPReqCounter.WithLabelValues("client_error", req.Method, "main_upstream").Inc()
 		logging.L.Error("error in doing the request to the main service", loggingFieldsWithError(err)...)
 		return
 	}
+
+	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
 
 	// TODO: Array in HTTP header values (issue #1)
 	for headerKey, headerValue := range mainRes.Header {
@@ -246,11 +258,16 @@ func (j *upstreamTestJob) Do() {
 	}
 
 	testReq.Header = j.req.Header
+	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(j.req.Method, "test_upstream"))
 	testRes, err := testServiceClient.Do(testReq)
+	t.ObserveDuration()
 	if err != nil {
+		metrics.HTTPReqCounter.WithLabelValues("client_error", j.req.Method, "test_upstream").Inc()
 		logging.L.Error("error in doing the request to the test service", j.loggingFieldsWithError(err)...)
 		return
 	}
+
+	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(testRes.StatusCode), j.req.Method, "test_upstream").Inc()
 
 	_, err = j.mainResBodyReader.Seek(0, io.SeekStart)
 	if err != nil {
