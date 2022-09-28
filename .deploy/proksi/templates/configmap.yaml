@@ -9,6 +9,11 @@ data:
     # HTTP server bind address to serve Proksi
     bind: ":{{ .Values.service.containerPort }}"
 
+    # Config of exposing Prometheus metrics
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      bind: "0.0.0.0:{{ .Values.metrics.containerPort }}"
+
     # List of upstreams to proxy the request to them
     upstreams:
       # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
