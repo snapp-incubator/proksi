@@ -1,0 +1,22 @@
+# HTTP server bind address to serve Proksi
+bind: "0.0.0.0:9090"
+
+# List of upstreams to proxy the request to them
+upstreams:
+  # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
+  # request will be the main upstream response
+  main:
+    address: "http://localhost:8080"
+  # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
+  test:
+    address: "http://localhost:8081"
+
+# Elasticsearch storage config params
+elasticsearch:
+  addresses: [ "127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
+  username: ""                    # Username for HTTP Basic Authentication.
+  password: ""                    # Password for HTTP Basic Authentication.
+  cloud_id: ""                    # Endpoint for the Elastic Service (https://elastic.co/cloud).
+  api_key: ""                     # Base64-encoded token for authorization; if set, overrides username/password and service token.
+  service_token: ""               # Service token for authorization; if set, overrides username/password.
+  certificate_fingerprint: ""     # SHA256 hex fingerprint given by Elasticsearch on first launch.
