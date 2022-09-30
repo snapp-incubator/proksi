@@ -1,6 +1,11 @@
 # HTTP server bind address to serve Proksi
 bind: "0.0.0.0:9090"
 
+# Config of exposing Prometheus metrics
+metrics:
+  enabled: true
+  bind: "0.0.0.0:9001"
+
 # List of upstreams to proxy the request to them
 upstreams:
   # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
@@ -10,6 +15,11 @@ upstreams:
   # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
   test:
     address: "http://localhost:8081"
+
+# Worker pool configurations
+worker:
+  count: 50               # Number of go-routines of the pool
+  queue_size: 2048        # Size of the queue (buffered channel size)
 
 # Elasticsearch storage config params
 elasticsearch:

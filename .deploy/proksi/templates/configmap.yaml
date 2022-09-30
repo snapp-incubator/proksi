@@ -9,6 +9,11 @@ data:
     # HTTP server bind address to serve Proksi
     bind: ":{{ .Values.service.containerPort }}"
 
+    # Config of exposing Prometheus metrics
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      bind: "0.0.0.0:{{ .Values.metrics.containerPort }}"
+
     # List of upstreams to proxy the request to them
     upstreams:
       # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
@@ -18,6 +23,11 @@ data:
       # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
       test:
         address: {{ .Values.upstreams.test.url | quote }}
+
+    # Worker pool configurations
+    worker:
+      count: {{ .Values.worker.count }}                  # Number of go-routines of the pool
+      queue_size: {{ .Values.worker.queueSize }}         # Size of the queue (buffered channel size)
 
     # Elasticsearch storage config params
     elasticsearch:
