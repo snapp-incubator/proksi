@@ -95,3 +95,14 @@ upstreams:
     url: "http://localhost:8080"
   test:
     url: "http://localhost:8081"
+
+worker:
+  count: 50
+  queueSize: 2048
+
+metrics:
+  enabled: true
+  containerPort: 9001
+  serviceMonitor:
+    enabled: true
+    interval: "10s"

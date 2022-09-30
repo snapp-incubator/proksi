@@ -1,0 +1,16 @@
+{{ if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "proksi.serviceAccountName" . }}
+  labels:
+    {{- include "proksi.labels" . | nindent 4 }}
+spec:
+  endpoints:
+    - path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval | quote }}
+      port: metrics
+  selector:
+    matchLabels:
+      {{- include "proksi.selectorLabels" . | nindent 6 }}
+{{- end }}
