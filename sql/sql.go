@@ -6,25 +6,43 @@ import (
 	"log"
 	"net"
 	"os"
+
+	"github.com/snapp-incubator/proksi/internal/config"
 )
 
 var (
-	localAddr  = flag.String("l", ":3307", "local address")
-	remoteAddr = flag.String("r", "localhost:3306", "remote address")
+	help       bool   // Indicates whether to show the help or not
+	configPath string // Path of config file
 )
 
-func main() {
+func init() {
+	flag.BoolVar(&help, "help", false, "Show help")
+	flag.StringVar(&configPath, "config", "", "The path of config file")
+
+	// Parse the terminal flags
 	flag.Parse()
+}
 
-	log.Printf("proxing from %v to %v\n", *localAddr, *remoteAddr)
+func main() {
+	var err error
 
-	laddr, err := net.ResolveTCPAddr("tcp", *localAddr)
+	// Usage Demo
+	if help {
+		flag.Usage()
+		return
+	}
+
+	c := config.LoadSQL(configPath)
+
+	log.Printf("proxing from %v to %v\n", c.MainFrontend.Bind, c.Backend.Address)
+
+	laddr, err := net.ResolveTCPAddr("tcp", c.MainFrontend.Bind)
 	if err != nil {
 		log.Printf("Failed to resolve local address: %s", err)
 		os.Exit(1)
 	}
 
-	raddr, err := net.ResolveTCPAddr("tcp", *remoteAddr)
+	raddr, err := net.ResolveTCPAddr("tcp", c.Backend.Address)
 	if err != nil {
 		log.Printf("Failed to resolve remote address: %s", err)
 		os.Exit(1)

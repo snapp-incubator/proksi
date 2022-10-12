@@ -1,5 +1,14 @@
 package config
 
+import (
+	"github.com/knadh/koanf"
+)
+
+var (
+	// k is the global koanf instance. Use "." as the key path delimiter.
+	k = koanf.New(".")
+)
+
 // Elasticsearch is the config of Elasticsearch
 type Elasticsearch struct {
 	Addresses []string `koanf:"addresses"` // A list of Elasticsearch nodes to use.

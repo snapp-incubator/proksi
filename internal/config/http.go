@@ -1,7 +1,6 @@
 package config
 
 import (
-	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/structs"
@@ -11,9 +10,6 @@ import (
 )
 
 var (
-	// k is the global koanf instance. Use "." as the key path delimiter.
-	k = koanf.New(".")
-
 	// HTTP is the config for Proksi HTTP
 	HTTP *HTTPConfig
 )
