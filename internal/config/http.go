@@ -56,8 +56,8 @@ type HTTPConfig struct {
 		Main httpUpstream `koanf:"main"`
 		Test httpUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
-	Worker           worker `koanf:"worker"`
-	JsonUselessPaths []string
+	Worker           worker   `koanf:"worker"`
+	JsonUselessPaths []string `koanf:"json_useless_paths"`
 }
 
 type httpUpstream struct {
