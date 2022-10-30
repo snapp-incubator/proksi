@@ -30,3 +30,6 @@ elasticsearch:
   api_key: ""                     # Base64-encoded token for authorization; if set, overrides username/password and service token.
   service_token: ""               # Service token for authorization; if set, overrides username/password.
   certificate_fingerprint: ""     # SHA256 hex fingerprint given by Elasticsearch on first launch.
+
+json_useless_paths:
+  - ""
