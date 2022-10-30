@@ -35,3 +35,9 @@ data:
         - {{.}}{{- end }}
       username: {{ .Values.elasticsearch.username | quote }}
       password: {{ .Values.elasticsearch.password | quote }}
+
+    # List of JSON paths that we don't want to compare
+    json_useless_paths:
+      {{- range .Values.json_useless_paths }}
+      - {{ . }}
+      {{- end }}
