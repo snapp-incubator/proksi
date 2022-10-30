@@ -38,6 +38,6 @@ data:
 
     # List of JSON paths that we don't want to compare
     json_useless_paths:
-      {{- range .Values.json_useless_paths }}
+      {{- range .Values.jsonUselessPaths }}
       - {{ . }}
       {{- end }}

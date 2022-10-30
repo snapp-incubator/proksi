@@ -100,7 +100,7 @@ worker:
   count: 50
   queueSize: 2048
 
-json_useless_paths:
+jsonUselessPaths:
   - "your_useless_path"
 
 metrics:
