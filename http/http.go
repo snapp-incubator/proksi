@@ -135,8 +135,8 @@ func main() {
 }
 
 type server struct {
-	job            chan Job
-	RequestCounter uint64
+	job        chan Job
+	reqCounter uint64
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
@@ -207,8 +207,8 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	atomic.AddUint64(&s.RequestCounter, 1)
-	inBucket := config.HTTP.ABBucketPercentage > (s.RequestCounter % 100)
+	atomic.AddUint64(&s.reqCounter, 1)
+	inBucket := s.reqCounter%100 < config.HTTP.ABBucketPercentage
 	if inBucket {
 		s.job <- &upstreamTestJob{
 			req:                    req,
@@ -218,6 +218,8 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 			mainRes:                mainRes,
 			mainResBodyReader:      mainResBodyReader,
 		}
+	} else {
+		logging.L.Info("Sending request without test upstream", loggingFields(mainRes.StatusCode, mainRes.StatusCode)...)
 	}
 }
 
