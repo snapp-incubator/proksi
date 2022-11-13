@@ -182,35 +182,34 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
+	// TODO: Array in HTTP header values (issue #1)
+	for headerKey, headerValue := range mainRes.Header {
+		if len(headerValue) == 1 {
+			writer.Header().Set(headerKey, headerValue[0])
+		} else {
+			writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
+		}
+	}
+
+	writer.WriteHeader(mainRes.StatusCode)
+
+	var mainResBodyBuffer bytes.Buffer
+	_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
+	if err != nil {
+		logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
+		return
+	}
+
+	mainResBodyReader := bytes.NewReader(mainResBodyBuffer.Bytes())
+	_, err = io.Copy(writer, mainResBodyReader)
+	if err != nil {
+		logging.L.Error("error in writing the response to the response writer", loggingFieldsWithError(err)...)
+		return
+	}
 
 	atomic.AddUint64(&s.RequestCounter, 1)
 	inBucket := config.HTTP.ABBucketPercentage > (s.RequestCounter % 100)
 	if inBucket {
-		// TODO: Array in HTTP header values (issue #1)
-		for headerKey, headerValue := range mainRes.Header {
-			if len(headerValue) == 1 {
-				writer.Header().Set(headerKey, headerValue[0])
-			} else {
-				writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
-			}
-		}
-
-		writer.WriteHeader(mainRes.StatusCode)
-
-		var mainResBodyBuffer bytes.Buffer
-		_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
-		if err != nil {
-			logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
-			return
-		}
-
-		mainResBodyReader := bytes.NewReader(mainResBodyBuffer.Bytes())
-		_, err = io.Copy(writer, mainResBodyReader)
-		if err != nil {
-			logging.L.Error("error in writing the response to the response writer", loggingFieldsWithError(err)...)
-			return
-		}
-
 		s.job <- &upstreamTestJob{
 			req:                    req,
 			reqBodyReader:          reqBodyReader,
@@ -320,13 +319,13 @@ func (j *upstreamTestJob) Do() {
 			srcBodyStr := string(mainResBody)
 			testBodyStr := string(testResBody)
 
-			for i := 0; i < len(config.HTTP.JsonUselessPaths); i++ {
-				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.JsonUselessPaths[i], "useless")
+			for i := 0; i < len(config.HTTP.SkipJSONPaths); i++ {
+				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
 				if err != nil {
 					panic(err)
 				}
 
-				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.JsonUselessPaths[i], "useless")
+				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
 				if err != nil {
 					panic(err)
 				}
