@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/prometheus/client_golang/prometheus"
@@ -134,7 +135,8 @@ func main() {
 }
 
 type server struct {
-	job chan Job
+	job            chan Job
+	RequestCounter uint64
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
@@ -181,38 +183,42 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
 
-	// TODO: Array in HTTP header values (issue #1)
-	for headerKey, headerValue := range mainRes.Header {
-		if len(headerValue) == 1 {
-			writer.Header().Set(headerKey, headerValue[0])
-		} else {
-			writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
+	atomic.AddUint64(&s.RequestCounter, 1)
+	inBucket := config.HTTP.ABBucketPercentage > (s.RequestCounter % 100)
+	if inBucket {
+		// TODO: Array in HTTP header values (issue #1)
+		for headerKey, headerValue := range mainRes.Header {
+			if len(headerValue) == 1 {
+				writer.Header().Set(headerKey, headerValue[0])
+			} else {
+				writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
+			}
 		}
-	}
 
-	writer.WriteHeader(mainRes.StatusCode)
+		writer.WriteHeader(mainRes.StatusCode)
 
-	var mainResBodyBuffer bytes.Buffer
-	_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
-	if err != nil {
-		logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
-		return
-	}
+		var mainResBodyBuffer bytes.Buffer
+		_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
+		if err != nil {
+			logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
+			return
+		}
 
-	mainResBodyReader := bytes.NewReader(mainResBodyBuffer.Bytes())
-	_, err = io.Copy(writer, mainResBodyReader)
-	if err != nil {
-		logging.L.Error("error in writing the response to the response writer", loggingFieldsWithError(err)...)
-		return
-	}
+		mainResBodyReader := bytes.NewReader(mainResBodyBuffer.Bytes())
+		_, err = io.Copy(writer, mainResBodyReader)
+		if err != nil {
+			logging.L.Error("error in writing the response to the response writer", loggingFieldsWithError(err)...)
+			return
+		}
 
-	s.job <- &upstreamTestJob{
-		req:                    req,
-		reqBodyReader:          reqBodyReader,
-		loggingFieldsWithError: loggingFieldsWithError,
-		loggingFields:          loggingFields,
-		mainRes:                mainRes,
-		mainResBodyReader:      mainResBodyReader,
+		s.job <- &upstreamTestJob{
+			req:                    req,
+			reqBodyReader:          reqBodyReader,
+			loggingFieldsWithError: loggingFieldsWithError,
+			loggingFields:          loggingFields,
+			mainRes:                mainRes,
+			mainResBodyReader:      mainResBodyReader,
+		}
 	}
 }
 

@@ -103,6 +103,8 @@ worker:
 jsonUselessPaths:
   - "your_useless_path"
 
+abBucketPercentage: 10
+
 metrics:
   enabled: true
   containerPort: 9001

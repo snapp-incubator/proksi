@@ -41,3 +41,6 @@ data:
       {{- range .Values.jsonUselessPaths }}
       - {{ . }}
       {{- end }}
+    
+    # Percentage of the requests that will be sent to the test upstream
+    ab_bucket_percentage: {{ .Values.abBucketPercentage }}
