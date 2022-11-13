@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"github.com/snapp-incubator/proksi/internal/routing"
 	"io"
 	"log"
 	"net/http"
