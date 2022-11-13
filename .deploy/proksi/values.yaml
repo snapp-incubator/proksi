@@ -100,8 +100,7 @@ worker:
   count: 50
   queueSize: 2048
 
-jsonUselessPaths:
-  - "your_useless_path"
+skipJsonPaths: []
 
 abBucketPercentage: 10
 

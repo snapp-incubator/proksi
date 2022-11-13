@@ -31,7 +31,7 @@ elasticsearch:
   service_token: ""               # Service token for authorization; if set, overrides username/password.
   certificate_fingerprint: ""     # SHA256 hex fingerprint given by Elasticsearch on first launch.
 
-json_useless_paths:
-  - ""
+# List of json path to be skipped on response comparison
+skip_json_paths: []
 
 ab_bucket_percentage: 10

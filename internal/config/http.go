@@ -44,7 +44,7 @@ var defaultHTTP = HTTPConfig{
 		Count:     50,
 		QueueSize: 2048,
 	},
-	JsonUselessPaths: []string{},
+	SkipJSONPaths: []string{},
 }
 
 // HTTPConfig represent config of the Proksi HTTP.
@@ -57,7 +57,7 @@ type HTTPConfig struct {
 		Test httpUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
 	Worker             worker   `koanf:"worker"`
-	JsonUselessPaths   []string `koanf:"json_useless_paths"`
+	SkipJSONPaths      []string `koanf:"skip_json_paths"`
 	ABBucketPercentage uint64   `koanf:"ab_bucket_percentage"`
 }
 

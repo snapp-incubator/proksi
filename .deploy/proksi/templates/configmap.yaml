@@ -37,8 +37,8 @@ data:
       password: {{ .Values.elasticsearch.password | quote }}
 
     # List of JSON paths that we don't want to compare
-    json_useless_paths:
-      {{- range .Values.jsonUselessPaths }}
+    skip_json_paths:
+      {{- range .Values.skipJsonPaths }}
       - {{ . }}
       {{- end }}
     
