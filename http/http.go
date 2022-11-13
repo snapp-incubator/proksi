@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/prometheus/client_golang/prometheus"
@@ -56,7 +57,6 @@ func main() {
 	}
 
 	c := config.Load(configPath)
-	routing.R = routing.NewRoutingBucket(100) // It means that 100 requests should be sent to the main service and test service
 
 	if c.Upstreams.Main.Address == "" {
 		logging.L.Fatal("Main upstream backend can not be empty.")
@@ -136,7 +136,8 @@ func main() {
 }
 
 type server struct {
-	job chan Job
+	job            chan Job
+	RequestCounter uint64
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
@@ -183,7 +184,9 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
 
-	if routing.R.IsInBucket() {
+	atomic.AddUint64(&s.RequestCounter, 1)
+	inBucket := config.HTTP.ABBucketPercentage > (s.RequestCounter % 100)
+	if inBucket {
 		// TODO: Array in HTTP header values (issue #1)
 		for headerKey, headerValue := range mainRes.Header {
 			if len(headerValue) == 1 {
