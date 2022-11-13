@@ -100,6 +100,10 @@ worker:
   count: 50
   queueSize: 2048
 
+skipJsonPaths: []
+
+testProbability: 100
+
 metrics:
   enabled: true
   containerPort: 9001

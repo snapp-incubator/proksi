@@ -13,9 +13,11 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 
 	"github.com/snapp-incubator/proksi/internal/config"
@@ -133,7 +135,8 @@ func main() {
 }
 
 type server struct {
-	job chan Job
+	job        chan Job
+	reqCounter uint64
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
@@ -179,7 +182,6 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
-
 	// TODO: Array in HTTP header values (issue #1)
 	for headerKey, headerValue := range mainRes.Header {
 		if len(headerValue) == 1 {
@@ -205,13 +207,19 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	s.job <- &upstreamTestJob{
-		req:                    req,
-		reqBodyReader:          reqBodyReader,
-		loggingFieldsWithError: loggingFieldsWithError,
-		loggingFields:          loggingFields,
-		mainRes:                mainRes,
-		mainResBodyReader:      mainResBodyReader,
+	atomic.AddUint64(&s.reqCounter, 1)
+	inBucket := s.reqCounter%100 < config.HTTP.TestProbability-1
+	if inBucket {
+		s.job <- &upstreamTestJob{
+			req:                    req,
+			reqBodyReader:          reqBodyReader,
+			loggingFieldsWithError: loggingFieldsWithError,
+			loggingFields:          loggingFields,
+			mainRes:                mainRes,
+			mainResBodyReader:      mainResBodyReader,
+		}
+	} else {
+		logging.L.Info("Sending request without test upstream", loggingFields(mainRes.StatusCode, mainRes.StatusCode)...)
 	}
 }
 
@@ -307,6 +315,33 @@ func (j *upstreamTestJob) Do() {
 	if err != nil {
 		logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
 		return
+	}
+	if !equalBody {
+		if testRes.StatusCode == j.mainRes.StatusCode {
+			srcBodyStr := string(mainResBody)
+			testBodyStr := string(testResBody)
+
+			for i := 0; i < len(config.HTTP.SkipJSONPaths); i++ {
+				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				if err != nil {
+					panic(err)
+				}
+
+				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			mainResBody = []byte(srcBodyStr)
+			testResBody = []byte(testBodyStr)
+
+			equalBody, err = JSONBytesEqual(mainResBody, testResBody)
+			if err != nil {
+				logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+				return
+			}
+		}
 	}
 
 	if equalBody {

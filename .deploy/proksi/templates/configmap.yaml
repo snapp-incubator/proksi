@@ -35,3 +35,12 @@ data:
         - {{.}}{{- end }}
       username: {{ .Values.elasticsearch.username | quote }}
       password: {{ .Values.elasticsearch.password | quote }}
+
+    # List of JSON paths that we don't want to compare
+    skip_json_paths:
+      {{- range .Values.skipJsonPaths }}
+      - {{ . }}
+      {{- end }}
+    
+    # Percentage of the requests that will be sent to the test upstream
+    test_probability: {{ .Values.testProbability }}
