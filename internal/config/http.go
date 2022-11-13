@@ -56,8 +56,9 @@ type HTTPConfig struct {
 		Main httpUpstream `koanf:"main"`
 		Test httpUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
-	Worker           worker   `koanf:"worker"`
-	JsonUselessPaths []string `koanf:"json_useless_paths"`
+	Worker             worker   `koanf:"worker"`
+	JsonUselessPaths   []string `koanf:"json_useless_paths"`
+	ABBucketPercentage uint64   `koanf:"ab_bucket_percentage"`
 }
 
 type httpUpstream struct {

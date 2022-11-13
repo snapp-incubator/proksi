@@ -33,3 +33,5 @@ elasticsearch:
 
 json_useless_paths:
   - ""
+
+ab_bucket_percentage: 10
