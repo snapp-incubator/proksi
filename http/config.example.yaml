@@ -34,4 +34,9 @@ elasticsearch:
 # List of json path to be skipped on response comparison
 skip_json_paths: []
 
-ab_bucket_percentage: 10
+# An integer number between 0 and 100 shows how often the incoming request should be sent to the test upstream for compare.
+# Be aware that this option won't affect the number of requests sending to the main upstream.
+# 100 indicates that all the requests will be sent to the test upstream too.
+# 0 indicates that none of the requests will be sent to the test upstream.
+# 43 indicates that 43% of the requests will be sent to the test upstream.
+test_probability: 100

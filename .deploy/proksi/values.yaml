@@ -102,7 +102,7 @@ worker:
 
 skipJsonPaths: []
 
-abBucketPercentage: 10
+testProbability: 100
 
 metrics:
   enabled: true

@@ -208,7 +208,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	atomic.AddUint64(&s.reqCounter, 1)
-	inBucket := s.reqCounter%100 < config.HTTP.ABBucketPercentage
+	inBucket := s.reqCounter%100 < config.HTTP.TestProbability-1
 	if inBucket {
 		s.job <- &upstreamTestJob{
 			req:                    req,
