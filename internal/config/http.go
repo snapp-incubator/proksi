@@ -71,15 +71,15 @@ type worker struct {
 	QueueSize uint `koanf:"queue_size"`
 }
 
-// Load function will load the file located in path and return the parsed config. This function will panic on errors
-func Load(path string) *HTTPConfig {
-	// Load default config in the beginning
+// LoadHTTP function will load the file located in path and return the parsed config for ProksiHTTP. This function will panic on errors
+func LoadHTTP(path string) *HTTPConfig {
+	// LoadHTTP default config in the beginning
 	err := k.Load(structs.Provider(defaultHTTP, "koanf"), nil)
 	if err != nil {
 		logging.L.Fatal("error in loading the default config", zap.Error(err))
 	}
 
-	// Load YAML config and merge into the previously loaded config.
+	// LoadHTTP YAML config and merge into the previously loaded config.
 	err = k.Load(file.Provider(path), yaml.Parser())
 	if err != nil {
 		logging.L.Fatal("error in loading the config file", zap.Error(err))

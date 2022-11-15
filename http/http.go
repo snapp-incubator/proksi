@@ -55,7 +55,7 @@ func main() {
 		return
 	}
 
-	c := config.Load(configPath)
+	c := config.LoadHTTP(configPath)
 
 	if c.Upstreams.Main.Address == "" {
 		logging.L.Fatal("Main upstream backend can not be empty.")
