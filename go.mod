@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/elastic/go-elasticsearch/v8 v8.3.0
+	github.com/gorilla/mux v1.8.0
 	github.com/knadh/koanf v1.4.3
 	github.com/prometheus/client_golang v1.11.1
 	github.com/tidwall/sjson v1.2.5
