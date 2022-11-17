@@ -19,7 +19,7 @@ sleep 3
 go run http/http.go --config ./server/config.test.yaml &
 sleep 1
 
-for _ in {1..100}
+for _ in {1..30}
 do
     curl --location --request GET '127.0.0.1:9090/api/test' \
     --header 'Content-Type: application/json' \

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,7 +19,7 @@ import (
 
 func main() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	s1 := server("localhost:8080", initMainRoutes)
 	logging.L.Info("main server is running")
@@ -29,6 +30,7 @@ func main() {
 	shutdown(s1)
 	shutdown(s2)
 	logging.L.Debug("all servers are down")
+	os.Exit(0)
 }
 
 // server is HTTP server creator.
@@ -58,10 +60,7 @@ func shutdown(srv *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(2)*time.Second)
 	defer cancel()
 
-	err := srv.Shutdown(ctx)
-	if err != nil {
-		logging.L.Debug("error in shutting down", zap.Error(err))
-	}
+	srv.Shutdown(ctx)
 }
 
 func initMainRoutes(r *mux.Router) {
