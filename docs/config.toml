@@ -1,0 +1,4 @@
+baseURL = 'https://snapp-incubator.github.io/proksi/'
+languageCode = 'en-us'
+title = 'Proksi'
+theme = 'hugo-book'
