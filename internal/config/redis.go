@@ -16,13 +16,13 @@ var (
 
 var defaultRedis = RedisConfig{
 	MainFrontend: Frontend{
-		Bind: "127.0.0.1:6381",
+		Bind: "127.0.0.1:6380",
 	},
 	TestFrontend: Frontend{
-		Bind: "127.0.0.1:6382",
+		Bind: "127.0.0.1:6381",
 	},
 	Backend: Backend{
-		Address: "127.0.0.1:6380",
+		Address: "127.0.0.1:6379",
 	},
 }
 

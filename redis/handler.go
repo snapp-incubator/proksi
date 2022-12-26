@@ -1,29 +1,45 @@
-package redis
+package main
 
 import (
+	"context"
+	"strconv"
 	"sync"
+	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/tidwall/redcon"
 )
 
 type Proxy struct {
-	mux    sync.RWMutex
-	items  map[string][]byte
-	cache  map[string][]byte
-	errSig chan bool
+	ctx        context.Context
+	mux        sync.RWMutex
+	mainClient *redis.Client
+	cache      map[string]string
+	errSig     chan bool
 }
 
 func NewProxy() *Proxy {
 	return &Proxy{
-		items:  make(map[string][]byte),
-		cache:  make(map[string][]byte),
+		ctx:    context.Background(),
+		cache:  make(map[string]string),
 		errSig: make(chan bool),
 	}
 }
 
+func (p *Proxy) ConnectToServer(address string) {
+	if p.mainClient != nil {
+		return
+	}
+
+	opts := &redis.Options{Addr: address, DB: 0}
+	p.mainClient = redis.NewClient(opts)
+}
+
 func (p *Proxy) ping(conn redcon.Conn, cmd redcon.Command) {
-	p.cache = map[string][]byte{string(cmd.Args[0]): []byte("PONG")}
-	conn.WriteString("PONG")
+	result, _ := p.mainClient.Ping(p.ctx).Result()
+	p.cache = map[string]string{string(cmd.Args[0]): result}
+
+	conn.WriteString(result)
 }
 
 func (p *Proxy) set(conn redcon.Conn, cmd redcon.Command) {
@@ -32,13 +48,11 @@ func (p *Proxy) set(conn redcon.Conn, cmd redcon.Command) {
 		return
 	}
 
-	p.mux.Lock()
-	p.items[string(cmd.Args[1])] = cmd.Args[2]
-	p.mux.Unlock()
+	expiration, _ := strconv.ParseInt(string(cmd.Args[3]), 10, 64)
+	result, _ := p.mainClient.Set(p.ctx, string(cmd.Args[1]), string(cmd.Args[2]), time.Duration(expiration)).Result()
+	p.cache = map[string]string{string(cmd.Args[0]): result}
 
-	p.cache = map[string][]byte{string(cmd.Args[0]): []byte("OK")}
-
-	conn.WriteString("OK")
+	conn.WriteString(result)
 }
 
 func (p *Proxy) get(conn redcon.Conn, cmd redcon.Command) {
@@ -47,16 +61,10 @@ func (p *Proxy) get(conn redcon.Conn, cmd redcon.Command) {
 		return
 	}
 
-	p.mux.RLock()
-	value, found := p.items[string(cmd.Args[1])]
-	p.mux.RUnlock()
+	result, _ := p.mainClient.Get(p.ctx, string(cmd.Args[1])).Result()
+	p.cache = map[string]string{string(cmd.Args[0]): result}
 
-	if !found {
-		p.cache = map[string][]byte{string(cmd.Args[0]): []byte("")}
-		conn.WriteNull()
-	}
-	p.cache = map[string][]byte{string(cmd.Args[0]): value}
-	conn.WriteBulk(value)
+	conn.WriteString(result)
 }
 
 func (p *Proxy) delete(conn redcon.Conn, cmd redcon.Command) {
@@ -65,15 +73,8 @@ func (p *Proxy) delete(conn redcon.Conn, cmd redcon.Command) {
 		return
 	}
 
-	p.mux.RLock()
-	_, found := p.items[string(cmd.Args[1])]
-	delete(p.items, string(cmd.Args[1]))
-	p.mux.Unlock()
+	result, _ := p.mainClient.Del(p.ctx, string(cmd.Args[1])).Result()
+	p.cache = map[string]string{string(cmd.Args[0]): strconv.Itoa(int(result))}
 
-	if !found {
-		p.cache = map[string][]byte{string(cmd.Args[0]): []byte("0")}
-		conn.WriteInt(0)
-	}
-	p.cache = map[string][]byte{string(cmd.Args[0]): []byte("1")}
-	conn.WriteInt(1)
+	conn.WriteInt(int(result))
 }

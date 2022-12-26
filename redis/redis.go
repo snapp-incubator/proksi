@@ -1,8 +1,9 @@
-package redis
+package main
 
 import (
 	"flag"
 	"log"
+	"strconv"
 
 	"github.com/tidwall/redcon"
 
@@ -17,6 +18,10 @@ const (
 )
 
 type FunctionType string
+
+const (
+	Del FunctionType = "del"
+)
 
 var (
 	help       bool   // Indicates whether to show the help or not
@@ -40,15 +45,17 @@ func main() {
 
 	c := config.LoadRedis(configPath)
 
-	h := NewProxy()
+	proxy := NewProxy()
+
+	proxy.ConnectToServer(c.Backend.Address)
 
 	errSig := make(chan bool)
 
 	log.Printf("proxing from %v to %v\n", c.MainFrontend.Bind, c.Backend.Address)
 
-	go h.serve(Main, c.Backend.Address, errSig)
-	go h.serve(Test, c.MainFrontend.Bind, errSig)
-	<-h.errSig
+	go proxy.serve(Main, c.MainFrontend.Bind, errSig)
+	go proxy.serve(Test, c.TestFrontend.Bind, errSig)
+	<-proxy.errSig
 }
 
 // serve implements the Redis server.
@@ -56,9 +63,9 @@ func (p *Proxy) serve(serverType ServerType, address string, errSig chan bool) {
 	var err error
 
 	for {
-		if serverType == Main {
-			log.Printf("started server at %s", address)
+		log.Printf("%s server started at %s", serverType, address)
 
+		if serverType == Main {
 			err = redcon.ListenAndServe(address, p.mainHandler(), accept, p.closed())
 			if err != nil {
 				log.Print(err)
@@ -66,8 +73,6 @@ func (p *Proxy) serve(serverType ServerType, address string, errSig chan bool) {
 				return
 			}
 		} else {
-			log.Printf("started server at %s", address)
-
 			err = redcon.ListenAndServe(address, p.testHandler(), accept, p.closed())
 			if err != nil {
 				log.Print(err)
@@ -93,8 +98,14 @@ func (p *Proxy) mainHandler() func(conn redcon.Conn, cmd redcon.Command) {
 func (p *Proxy) testHandler() func(conn redcon.Conn, cmd redcon.Command) {
 	return func(conn redcon.Conn, cmd redcon.Command) {
 		result, found := p.cache[string(cmd.Args[0])]
+
 		if found {
-			conn.WriteString(string(result))
+			if string(cmd.Args[0]) == string(Del) {
+				i, _ := strconv.Atoi(result)
+				conn.WriteInt(i)
+			} else {
+				conn.WriteString(result)
+			}
 		}
 	}
 }
