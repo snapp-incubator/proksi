@@ -51,7 +51,7 @@ func main() {
 
 	errSig := make(chan bool)
 
-	log.Printf("proxing from %v to %v\n", c.MainFrontend.Bind, c.Backend.Address)
+	log.Printf("proxing from %v to %v\n", c.TestFrontend.Bind, c.Backend.Address)
 
 	go proxy.serve(Main, c.MainFrontend.Bind, errSig)
 	go proxy.serve(Test, c.TestFrontend.Bind, errSig)
