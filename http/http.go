@@ -223,20 +223,6 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// JSONBytesEqual compares the JSON in two byte slices.
-func JSONBytesEqual(a, b []byte) (bool, error) {
-	var json1, json2 interface{}
-	if err := json.Unmarshal(a, &json1); err != nil {
-		return false, err
-	}
-
-	if err := json.Unmarshal(b, &json2); err != nil {
-		return false, err
-	}
-
-	return reflect.DeepEqual(json2, json1), nil
-}
-
 type Job interface {
 	Do()
 }
@@ -311,12 +297,43 @@ func (j *upstreamTestJob) Do() {
 		return
 	}
 
-	equalBody, err := JSONBytesEqual(mainResBody, testResBody)
-	if err != nil {
-		logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+	mainResContentType := j.mainRes.Header.Get("content-type")
+	testResContentType := testRes.Header.Get("content-type")
+	if mainResContentType != testResContentType {
+		logging.L.Warn("NOT equal content-type to compare",
+			j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+		err = strg.Store(storage.Log{
+			URL:                    j.req.URL.String(),
+			Headers:                j.req.Header,
+			MainUpstreamStatusCode: j.mainRes.StatusCode,
+			TestUpstreamStatusCode: testRes.StatusCode,
+		})
 		return
 	}
-	if !equalBody {
+
+	var comparator bodyEqualizerFunc
+	var responseSkipPath bool
+
+	switch strings.ToLower(mainResContentType) {
+	case "application/json", "application/ld+json":
+		responseSkipPath = true
+		comparator = JSONBytesEqual
+	// TODO: We didn't have time to implement it.
+	//case "application/xml", "application/xhtml+xml", "text/xml":
+	//	responseSkipPath = false
+	//	comparator = xmlBytesEqual
+	default:
+		responseSkipPath = false
+		comparator = dummyBytesEqual
+	}
+
+	equalBody, err := comparator(mainResBody, testResBody)
+	if err != nil {
+		logging.L.Error("error in response equality check", j.loggingFieldsWithError(err)...)
+		return
+	}
+
+	if !equalBody && responseSkipPath {
 		if testRes.StatusCode == j.mainRes.StatusCode {
 			srcBodyStr := string(mainResBody)
 			testBodyStr := string(testResBody)
@@ -358,4 +375,30 @@ func (j *upstreamTestJob) Do() {
 			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
 		}
 	}
+}
+
+type bodyEqualizerFunc func(a, b []byte) (bool, error)
+
+// JSONBytesEqual compares the JSON in two byte slices.
+func JSONBytesEqual(a, b []byte) (bool, error) {
+	var json1, json2 interface{}
+	if err := json.Unmarshal(a, &json1); err != nil {
+		return false, err
+	}
+
+	if err := json.Unmarshal(b, &json2); err != nil {
+		return false, err
+	}
+
+	return reflect.DeepEqual(json2, json1), nil
+}
+
+// xmlBytesEqual compares the JSON in two byte slices.
+func xmlBytesEqual(a, b []byte) (bool, error) {
+	// TODO: Implement it in the future
+	return false, nil
+}
+
+func dummyBytesEqual(a, b []byte) (bool, error) {
+	return bytes.Equal(a, b), nil
 }
