@@ -104,6 +104,8 @@ skipJsonPaths: []
 
 testProbability: 100
 
+logResponsePayload: true
+
 metrics:
   enabled: true
   containerPort: 9001
