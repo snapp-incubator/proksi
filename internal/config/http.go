@@ -44,8 +44,9 @@ var defaultHTTP = HTTPConfig{
 		Count:     50,
 		QueueSize: 2048,
 	},
-	SkipJSONPaths:   []string{},
-	TestProbability: 100,
+	SkipJSONPaths:      []string{},
+	TestProbability:    100,
+	LogResponsePayload: true,
 }
 
 // HTTPConfig represent config of the Proksi HTTP.
@@ -57,9 +58,10 @@ type HTTPConfig struct {
 		Main httpUpstream `koanf:"main"`
 		Test httpUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
-	Worker          worker   `koanf:"worker"`
-	SkipJSONPaths   []string `koanf:"skip_json_paths"`
-	TestProbability uint64   `koanf:"test_probability"`
+	Worker             worker   `koanf:"worker"`
+	SkipJSONPaths      []string `koanf:"skip_json_paths"`
+	TestProbability    uint64   `koanf:"test_probability"`
+	LogResponsePayload bool     `koanf:"log_response_payload"`
 }
 
 type httpUpstream struct {

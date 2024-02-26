@@ -40,3 +40,6 @@ skip_json_paths: []
 # 0 indicates that none of the requests will be sent to the test upstream.
 # 43 indicates that 43% of the requests will be sent to the test upstream.
 test_probability: 100
+
+# Indicates whether to log response body of main and test upstreams or not.
+log_response_payload: true

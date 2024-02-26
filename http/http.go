@@ -365,12 +365,21 @@ func (j *upstreamTestJob) Do() {
 		logging.L.Info("Equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
-		err = strg.Store(storage.Log{
+		l := storage.Log{
 			URL:                    j.req.URL.String(),
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
-		})
+		}
+
+		if config.HTTP.LogResponsePayload {
+			mainResBodyStr := string(mainResBody)
+			testResBodyStr := string(testResBody)
+			l.MainUpstreamResponsePayload = &mainResBodyStr
+			l.TestUpstreamResponsePayload = &testResBodyStr
+		}
+
+		err = strg.Store(l)
 		if err != nil {
 			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
 		}
