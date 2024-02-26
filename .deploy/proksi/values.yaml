@@ -107,6 +107,6 @@ testProbability: 100
 metrics:
   enabled: true
   containerPort: 9001
-  serviceMonitor:
+  podMonitor:
     enabled: true
     interval: "10s"
