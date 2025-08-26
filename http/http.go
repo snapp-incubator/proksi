@@ -47,8 +47,6 @@ func init() {
 }
 
 func main() {
-	var err error
-
 	// Usage Demo
 	if help {
 		flag.Usage()
@@ -65,28 +63,36 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
-	elasticConfig := elasticsearch.Config{
-		Addresses:              c.Elasticsearch.Addresses,
-		Username:               c.Elasticsearch.Username,
-		Password:               c.Elasticsearch.Password,
-		CloudID:                c.Elasticsearch.CloudID,
-		APIKey:                 c.Elasticsearch.APIKey,
-		ServiceToken:           c.Elasticsearch.ServiceToken,
-		CertificateFingerprint: c.Elasticsearch.CertificateFingerprint,
-	}
-	es, err := elasticsearch.NewClient(elasticConfig)
-	if err != nil {
-		logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
-	}
+	// Initialize storage backend based on configuration
+	switch c.StorageType {
+	case "stdout":
+		strg = &storage.StdoutStorage{}
+		logging.L.Info("Using stdout storage backend")
+	case "elasticsearch":
+		elasticConfig := elasticsearch.Config{
+			Addresses:              c.Elasticsearch.Addresses,
+			Username:               c.Elasticsearch.Username,
+			Password:               c.Elasticsearch.Password,
+			CloudID:                c.Elasticsearch.CloudID,
+			APIKey:                 c.Elasticsearch.APIKey,
+			ServiceToken:           c.Elasticsearch.ServiceToken,
+			CertificateFingerprint: c.Elasticsearch.CertificateFingerprint,
+		}
+		es, err := elasticsearch.NewClient(elasticConfig)
+		if err != nil {
+			logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
+		}
 
-	esInfo, err := es.Info()
-	if err != nil {
-		logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
+		esInfo, err := es.Info()
+		if err != nil {
+			logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
+		}
+
+		logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
+		strg = &storage.ElasticStorage{ES: es}
+	default:
+		logging.L.Fatal("Unknown storage type", zap.String("storage_type", c.StorageType))
 	}
-
-	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
-
-	strg = &storage.ElasticStorage{ES: es}
 
 	jobs := make(chan Job, c.Worker.QueueSize)
 
@@ -319,7 +325,7 @@ func (j *upstreamTestJob) Do() {
 		responseSkipPath = true
 		comparator = JSONBytesEqual
 	// TODO: We didn't have time to implement it.
-	//case "application/xml", "application/xhtml+xml", "text/xml":
+	// case "application/xml", "application/xhtml+xml", "text/xml":
 	//	responseSkipPath = false
 	//	comparator = xmlBytesEqual
 	default:

@@ -1,4 +1,4 @@
-FROM golang:1.18.5 AS build
+FROM golang:1.25.0 AS build
 
 RUN mkdir -p /src
 

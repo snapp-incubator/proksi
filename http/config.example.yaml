@@ -6,6 +6,10 @@ metrics:
   enabled: true
   bind: "0.0.0.0:9001"
 
+# Storage backend type: "elasticsearch" or "stdout"
+# Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
+storage_type: "stdout"
+
 # List of upstreams to proxy the request to them
 upstreams:
   # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
