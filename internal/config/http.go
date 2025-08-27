@@ -24,6 +24,7 @@ var defaultHTTP = HTTPConfig{
 		Enabled: true,
 		Bind:    "0.0.0.0:9001",
 	},
+	StorageType: "stdout",
 	Elasticsearch: Elasticsearch{
 		Addresses:              []string{"::9200"},
 		Username:               "",
@@ -53,6 +54,7 @@ var defaultHTTP = HTTPConfig{
 type HTTPConfig struct {
 	Bind          string        `koanf:"bind"`
 	Metrics       metric        `koanf:"metrics"`
+	StorageType   string        `koanf:"storage_type"`   // Storage backend type: "elasticsearch" or "stdout"
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
 		Main httpUpstream `koanf:"main"`
