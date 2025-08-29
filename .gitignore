@@ -32,11 +32,14 @@
 # .idea/artifacts
 # .idea/compiler.xml
 # .idea/jarRepositories.xml
-# .idea/modules.xml
-# .idea/*.iml
 # .idea/modules
 # *.iml
 # *.ipr
+.idea/.gitignore
+.idea/modules.xml
+.idea/*.iml
+.idea/*.xml
+.idea/vcs.xml
 
 # CMake
 cmake-build-*/
@@ -84,6 +87,11 @@ fabric.properties
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Project binary file
+proksi-http
+proksi-sql
+proksi-redis
 
 # Dependency directories (remove the comment below to include it)
  vendor/

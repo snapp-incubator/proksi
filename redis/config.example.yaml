@@ -1,0 +1,8 @@
+main_frontend:
+  bind: "127.0.0.1:6380"
+
+test_frontend:
+  bind: "127.0.0.1:6381"
+
+backend:
+  address: "127.0.0.1:6379"
