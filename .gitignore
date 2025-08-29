@@ -97,3 +97,4 @@ config.*.yaml
 # Helm chart values ignorance
 values.*.yaml
 !values.yaml
+.history/
