@@ -47,3 +47,6 @@ test_probability: 100
 
 # Indicates whether to log response body of main and test upstreams or not.
 log_response_payload: true
+
+# Indicates whether to compare response headers between main and test upstreams or not.
+compare_headers: true
