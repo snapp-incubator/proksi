@@ -98,4 +98,4 @@ config.*.yaml
 values.*.yaml
 !values.yaml
 
-CLAUDE.md
+.history/
