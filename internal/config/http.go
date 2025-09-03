@@ -48,13 +48,14 @@ var defaultHTTP = HTTPConfig{
 	SkipJSONPaths:      []string{},
 	TestProbability:    100,
 	LogResponsePayload: true,
+	CompareHeaders:     true,
 }
 
 // HTTPConfig represent config of the Proksi HTTP.
 type HTTPConfig struct {
 	Bind          string        `koanf:"bind"`
 	Metrics       metric        `koanf:"metrics"`
-	StorageType   string        `koanf:"storage_type"`   // Storage backend type: "elasticsearch" or "stdout"
+	StorageType   string        `koanf:"storage_type"` // Storage backend type: "elasticsearch" or "stdout"
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
 		Main httpUpstream `koanf:"main"`
@@ -64,6 +65,7 @@ type HTTPConfig struct {
 	SkipJSONPaths      []string `koanf:"skip_json_paths"`
 	TestProbability    uint64   `koanf:"test_probability"`
 	LogResponsePayload bool     `koanf:"log_response_payload"`
+	CompareHeaders     bool     `koanf:"compare_headers"`
 }
 
 type httpUpstream struct {

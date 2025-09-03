@@ -51,3 +51,6 @@ data:
 
     # Indicates whether to log response body of main and test upstreams or not.
     log_response_payload: {{ .Values.logResponsePayload }}
+
+    # Indicates whether to compare response headers between main and test upstreams or not.
+    compare_headers: {{ .Values.compareHeaders }}

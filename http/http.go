@@ -304,17 +304,19 @@ func (j *upstreamTestJob) Do() {
 	}
 
 	mainResContentType := j.mainRes.Header.Get("content-type")
-	testResContentType := testRes.Header.Get("content-type")
-	if mainResContentType != testResContentType {
-		logging.L.Warn("NOT equal content-type to compare",
-			j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
-		err = strg.Store(storage.Log{
-			URL:                    j.req.URL.String(),
-			Headers:                j.req.Header,
-			MainUpstreamStatusCode: j.mainRes.StatusCode,
-			TestUpstreamStatusCode: testRes.StatusCode,
-		})
-		return
+	if config.HTTP.CompareHeaders {
+		testResContentType := testRes.Header.Get("content-type")
+		if mainResContentType != testResContentType {
+			logging.L.Warn("NOT equal content-type to compare",
+				j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+			err = strg.Store(storage.Log{
+				URL:                    j.req.URL.String(),
+				Headers:                j.req.Header,
+				MainUpstreamStatusCode: j.mainRes.StatusCode,
+				TestUpstreamStatusCode: testRes.StatusCode,
+			})
+			return
+		}
 	}
 
 	var comparator bodyEqualizerFunc
