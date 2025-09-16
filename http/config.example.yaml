@@ -1,6 +1,10 @@
 # HTTP server bind address to serve Proksi
 bind: "0.0.0.0:9090"
 
+# Log level for application logging
+# Options: debug, info, warn, error, fatal
+log_level: "info"
+
 # Config of exposing Prometheus metrics
 metrics:
   enabled: true
@@ -50,3 +54,53 @@ log_response_payload: true
 
 # Indicates whether to compare response headers between main and test upstreams or not.
 compare_headers: true
+
+# Global configuration that applies to all routes (unless overridden)
+global_config:
+  compare_headers: true                    # Compare response headers by default
+  skip_headers: ["Date", "Server"]         # Headers to ignore during comparison
+  store_req_body: false                    # Store request body when responses differ
+  store_resp_bodies: true                  # Store response bodies when they differ
+  skip_json_paths: []                      # JSON paths to ignore during comparison
+  test_probability: 100                    # Percentage of requests to send to test upstream
+
+# Routes to completely skip (no test upstream call or comparison)
+skip_routes:
+  - "GET:/health"                          # Skip health checks
+  - "GET:/metrics"                           # Skip metrics endpoints
+
+# Per-route configuration overrides
+# Note: For boolean route-specific overrides, use semantic keywords:
+#   - "enable" to explicitly enable a feature for this route
+#   - "disable" to explicitly disable a feature for this route  
+#   - omit the field to inherit from global_config
+route_configs:
+  "POST:/api/v1/cities":                   # Exact route match
+    compare_headers: disable               # Disable header comparison for this route
+    store_req_body: enable                 # Store request body for debugging
+    skip_headers: ["X-Request-ID"]         # Additional headers to skip
+
+  "GET:/api/v1/users/*":                   # Wildcard path matching
+    skip_headers: ["Authorization", "Cookie"] # Skip sensitive headers
+    test_probability: 50                   # Only test 50% of user requests
+    skip_json_paths: ["timestamp", "user.last_login"]
+
+  "*:/api/v2/*":                           # Method wildcard with path pattern
+    store_req_body: enable                 # Store all v2 API request bodies
+    store_resp_bodies: disable             # But don't store response bodies
+
+  "GET:/api/v1/orders/*/items":            # Route parameter matching
+    skip_headers: ["Order-Token"]          # Skip order-specific headers
+    test_probability: 75                   # Test 75% of order item requests
+
+  "POST:/api/v1/users/*/posts/*":          # Multiple route parameters
+    store_req_body: enable                 # Store request bodies for user posts
+    skip_json_paths: ["user.id", "post.internal_id"]
+
+# Example of different patterns:
+# - "GET:/exact/path" - exact match for GET /exact/path
+# - "POST:/api/v1/*" - match POST requests to any path under /api/v1/
+# - "*:/health" - match any method to /health
+# - "GET:/users/[0-9]*" - match GET requests to /users/123 etc (Go path.Match syntax)
+# - "GET:/api/v1/orders/*/items" - match route with single parameter (e.g. /api/v1/orders/123/items)
+# - "POST:/api/v1/users/*/posts/*" - match route with multiple parameters (e.g. /api/v1/users/456/posts/789)

@@ -1,13 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "proksi.fullname" . }}
-  labels:
-    {{- include "proksi.labels" . | nindent 4 }}
+  name: { { include "proksi.fullname" . } }
+  labels: { { - include "proksi.labels" . | nindent 4 } }
 data:
   config.yaml: |
     # HTTP server bind address to serve Proksi
     bind: ":{{ .Values.service.containerPort }}"
+
+    # Log level for application logging
+    # Options: debug, info, warn, error, fatal
+    log_level: {{ .Values.logLevel | quote }}
 
     # Config of exposing Prometheus metrics
     metrics:
@@ -45,7 +48,7 @@ data:
       {{- range .Values.skipJsonPaths }}
       - {{ . }}
       {{- end }}
-    
+
     # Percentage of the requests that will be sent to the test upstream
     test_probability: {{ .Values.testProbability }}
 
@@ -54,3 +57,58 @@ data:
 
     # Indicates whether to compare response headers between main and test upstreams or not.
     compare_headers: {{ .Values.compareHeaders }}
+
+    # Global configuration for all routes
+    global_config:
+      compare_headers: {{ .Values.globalConfig.compareHeaders }}
+      compare_body: {{ .Values.globalConfig.compareBody }}
+      skip_headers:
+        {{- range .Values.globalConfig.skipHeaders }}
+        - {{ . }}
+        {{- end }}
+      store_req_body: {{ .Values.globalConfig.storeReqBody }}
+      store_resp_bodies: {{ .Values.globalConfig.storeRespBodies }}
+      skip_json_paths:
+        {{- range .Values.globalConfig.skipJsonPaths }}
+        - {{ . }}
+        {{- end }}
+      test_probability: {{ .Values.globalConfig.testProbability }}
+
+    # Routes to skip entirely (no test upstream call)
+    skip_routes:
+      {{- range .Values.skipRoutes }}
+      - {{ . }}
+      {{- end }}
+
+    # Per-route configuration overrides
+    route_configs:
+      {{- range $route, $config := .Values.routeConfigs }}
+      "{{ $route }}":
+        {{- if $config.compareHeaders }}
+        compare_headers: {{ $config.compareHeaders }}
+        {{- end }}
+        {{- if $config.compareBody }}
+        compare_body: {{ $config.compareBody }}
+        {{- end }}
+        {{- if $config.skipHeaders }}
+        skip_headers:
+          {{- range $config.skipHeaders }}
+          - {{ . }}
+          {{- end }}
+        {{- end }}
+        {{- if $config.storeReqBody }}
+        store_req_body: {{ $config.storeReqBody }}
+        {{- end }}
+        {{- if $config.storeRespBodies }}
+        store_resp_bodies: {{ $config.storeRespBodies }}
+        {{- end }}
+        {{- if $config.skipJsonPaths }}
+        skip_json_paths:
+          {{- range $config.skipJsonPaths }}
+          - {{ . }}
+          {{- end }}
+        {{- end }}
+        {{- if $config.testProbability }}
+        test_probability: {{ $config.testProbability }}
+        {{- end }}
+      {{- end }}

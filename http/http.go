@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -55,12 +56,23 @@ func main() {
 
 	c := config.LoadHTTP(configPath)
 
+	// Initialize logging with configured level
+	if err := logging.InitializeLogger(c.LogLevel); err != nil {
+		logging.L.Fatal("Failed to initialize logger", zap.Error(err))
+	}
+
+	logging.L.Info("Logger initialized", zap.String("log_level", c.LogLevel))
+
 	if c.Upstreams.Main.Address == "" {
 		logging.L.Fatal("Main upstream backend can not be empty.")
 	}
 
 	if c.Upstreams.Test.Address == "" {
 		logging.L.Fatal("Test upstream backend can not be empty.")
+	}
+
+	if config.ComputedConfigs != nil {
+		fmt.Printf("computed configs: %+v\n", *config.ComputedConfigs)
 	}
 
 	// Initialize storage backend based on configuration
@@ -146,10 +158,58 @@ type server struct {
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
+	route := config.FormatRoute(req.Method, req.URL.Path)
+
+	// Check if route should be skipped entirely
+	if config.IsRouteSkipped(route) {
+		metrics.RouteSkipCounter.WithLabelValues("config").Inc()
+
+		// For skipped routes, just proxy to main upstream without testing
+		reqBodyBuffer := &bytes.Buffer{}
+		if _, err := io.Copy(reqBodyBuffer, req.Body); err != nil {
+			http.Error(writer, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		mainReq, err := http.NewRequestWithContext(req.Context(), req.Method, config.HTTP.Upstreams.Main.Address+req.URL.String(), bytes.NewReader(reqBodyBuffer.Bytes()))
+		if err != nil {
+			http.Error(writer, "Failed to create upstream request", http.StatusInternalServerError)
+			return
+		}
+
+		mainReq.Header = req.Header
+		t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues("main_upstream"))
+		mainRes, err := mainServiceClient.Do(mainReq)
+		t.ObserveDuration()
+
+		if err != nil {
+			metrics.HTTPReqCounter.WithLabelValues("client_error", "main_upstream").Inc()
+			http.Error(writer, "Failed to reach upstream", http.StatusBadGateway)
+			return
+		}
+
+		// Copy response
+		for headerKey, headerValue := range mainRes.Header {
+			if len(headerValue) == 1 {
+				writer.Header().Set(headerKey, headerValue[0])
+			} else {
+				writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
+			}
+		}
+		writer.WriteHeader(mainRes.StatusCode)
+		if _, err := io.Copy(writer, mainRes.Body); err != nil {
+			logging.L.Error("Failed to copy response body", zap.Error(err))
+		}
+
+		metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), "main_upstream").Inc()
+		return
+	}
+
 	loggingFieldsWithError := func(err error) []zap.Field {
 		return []zap.Field{
 			zap.String("method", req.Method),
 			zap.String("url", req.URL.String()),
+			zap.String("route", route),
 			zap.Error(err),
 		}
 	}
@@ -158,6 +218,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return []zap.Field{
 			zap.String("method", req.Method),
 			zap.String("url", req.URL.String()),
+			zap.String("route", route),
 			zap.Int("main_service_status_code", mainStatusCode),
 			zap.Int("test_service_status_code", testStatusCode),
 		}
@@ -178,16 +239,16 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	mainReq.Header = req.Header
-	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(req.Method, "main_upstream"))
+	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues("main_upstream"))
 	mainRes, err := mainServiceClient.Do(mainReq)
 	t.ObserveDuration()
 	if err != nil {
-		metrics.HTTPReqCounter.WithLabelValues("client_error", req.Method, "main_upstream").Inc()
+		metrics.HTTPReqCounter.WithLabelValues("client_error", "main_upstream").Inc()
 		logging.L.Error("error in doing the request to the main service", loggingFieldsWithError(err)...)
 		return
 	}
 
-	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
+	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), "main_upstream").Inc()
 	// TODO: Array in HTTP header values (issue #1)
 	for headerKey, headerValue := range mainRes.Header {
 		if len(headerValue) == 1 {
@@ -213,12 +274,18 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Get route-specific configuration
+	routeConfig := config.GetRouteConfig(route)
+
 	atomic.AddUint64(&s.reqCounter, 1)
-	inBucket := s.reqCounter%100 < config.HTTP.TestProbability-1
+	inBucket := s.reqCounter%100 < routeConfig.TestProbability-1
 	if inBucket {
 		s.job <- &upstreamTestJob{
 			req:                    req,
+			route:                  route,
+			routeConfig:            routeConfig,
 			reqBodyReader:          reqBodyReader,
+			reqBodyBuffer:          &reqBodyBuffer,
 			loggingFieldsWithError: loggingFieldsWithError,
 			loggingFields:          loggingFields,
 			mainRes:                mainRes,
@@ -226,6 +293,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		}
 	} else {
 		logging.L.Info("Sending request without test upstream", loggingFields(mainRes.StatusCode, mainRes.StatusCode)...)
+		metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), "test_upstream").Inc()
 	}
 }
 
@@ -235,7 +303,10 @@ type Job interface {
 
 type upstreamTestJob struct {
 	req           *http.Request
+	route         string
+	routeConfig   config.ComputedRouteConfig
 	reqBodyReader *bytes.Reader
+	reqBodyBuffer *bytes.Buffer
 
 	loggingFieldsWithError func(err error) []zap.Field
 	loggingFields          func(mainStatusCode, testStatusCode int) []zap.Field
@@ -258,16 +329,16 @@ func (j *upstreamTestJob) Do() {
 	}
 
 	testReq.Header = j.req.Header
-	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(j.req.Method, "test_upstream"))
+	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues("test_upstream"))
 	testRes, err := testServiceClient.Do(testReq)
 	t.ObserveDuration()
 	if err != nil {
-		metrics.HTTPReqCounter.WithLabelValues("client_error", j.req.Method, "test_upstream").Inc()
+		metrics.HTTPReqCounter.WithLabelValues("client_error", "test_upstream").Inc()
 		logging.L.Error("error in doing the request to the test service", j.loggingFieldsWithError(err)...)
 		return
 	}
 
-	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(testRes.StatusCode), j.req.Method, "test_upstream").Inc()
+	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(testRes.StatusCode), "test_upstream").Inc()
 
 	_, err = j.mainResBodyReader.Seek(0, io.SeekStart)
 	if err != nil {
@@ -291,12 +362,29 @@ func (j *upstreamTestJob) Do() {
 
 	if testRes.StatusCode != j.mainRes.StatusCode {
 		logging.L.Warn("Different status code from services", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
-		err = strg.Store(storage.Log{
+		metrics.ComparisonResults.WithLabelValues("status_diff").Inc()
+
+		// Track when main upstream returns 2xx but test upstream returns non-2xx
+		if isStatus2xx(j.mainRes.StatusCode) && !isStatus2xx(testRes.StatusCode) {
+			metrics.StatusCode2xxVsNon2xxCounter.Inc()
+		}
+
+		log := storage.Log{
 			URL:                    j.req.URL.String(),
+			Method:                 j.req.Method,
+			Route:                  j.route,
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
-		})
+			ComparisonType:         "status_diff",
+		}
+
+		if j.routeConfig.StoreReqBody {
+			reqBody := j.reqBodyBuffer.String()
+			log.RequestBody = &reqBody
+		}
+
+		err = strg.Store(log)
 		if err != nil {
 			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
 		}
@@ -304,17 +392,41 @@ func (j *upstreamTestJob) Do() {
 	}
 
 	mainResContentType := j.mainRes.Header.Get("content-type")
-	if config.HTTP.CompareHeaders {
-		testResContentType := testRes.Header.Get("content-type")
-		if mainResContentType != testResContentType {
-			logging.L.Warn("NOT equal content-type to compare",
-				j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
-			err = strg.Store(storage.Log{
+	if j.routeConfig.CompareHeaders {
+		differentHeaders := j.compareHeaders(j.mainRes.Header, testRes.Header)
+		if len(differentHeaders) > 0 {
+			logging.L.Warn("Different response headers from services", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+			metrics.ComparisonResults.WithLabelValues("header_diff").Inc()
+
+			log := storage.Log{
 				URL:                    j.req.URL.String(),
+				Method:                 j.req.Method,
+				Route:                  j.route,
 				Headers:                j.req.Header,
 				MainUpstreamStatusCode: j.mainRes.StatusCode,
 				TestUpstreamStatusCode: testRes.StatusCode,
-			})
+				ComparisonType:         "header_diff",
+				DifferentHeaders:       differentHeaders,
+			}
+
+			if j.routeConfig.StoreReqBody {
+				reqBody := j.reqBodyBuffer.String()
+				log.RequestBody = &reqBody
+			}
+
+			if j.routeConfig.StoreRespBodies {
+				mainResBody, _ := io.ReadAll(j.mainResBodyReader)
+				testResBody, _ := io.ReadAll(testRes.Body)
+				mainResBodyStr := string(mainResBody)
+				testResBodyStr := string(testResBody)
+				log.MainUpstreamResponsePayload = &mainResBodyStr
+				log.TestUpstreamResponsePayload = &testResBodyStr
+			}
+
+			err = strg.Store(log)
+			if err != nil {
+				logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
+			}
 			return
 		}
 	}
@@ -346,13 +458,13 @@ func (j *upstreamTestJob) Do() {
 			srcBodyStr := string(mainResBody)
 			testBodyStr := string(testResBody)
 
-			for i := 0; i < len(config.HTTP.SkipJSONPaths); i++ {
-				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+			for i := 0; i < len(j.routeConfig.SkipJSONPaths); i++ {
+				srcBodyStr, err = sjson.Set(srcBodyStr, j.routeConfig.SkipJSONPaths[i], "useless")
 				if err != nil {
 					panic(err)
 				}
 
-				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				testBodyStr, err = sjson.Set(testBodyStr, j.routeConfig.SkipJSONPaths[i], "useless")
 				if err != nil {
 					panic(err)
 				}
@@ -371,16 +483,27 @@ func (j *upstreamTestJob) Do() {
 
 	if equalBody {
 		logging.L.Info("Equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+		metrics.ComparisonResults.WithLabelValues("identical").Inc()
 	} else {
 		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+		metrics.ComparisonResults.WithLabelValues("body_diff").Inc()
+
 		l := storage.Log{
 			URL:                    j.req.URL.String(),
+			Method:                 j.req.Method,
+			Route:                  j.route,
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
+			ComparisonType:         "body_diff",
 		}
 
-		if config.HTTP.LogResponsePayload {
+		if j.routeConfig.StoreReqBody {
+			reqBody := j.reqBodyBuffer.String()
+			l.RequestBody = &reqBody
+		}
+
+		if j.routeConfig.StoreRespBodies {
 			mainResBodyStr := string(mainResBody)
 			testResBodyStr := string(testResBody)
 			l.MainUpstreamResponsePayload = &mainResBodyStr
@@ -410,12 +533,70 @@ func JSONBytesEqual(a, b []byte) (bool, error) {
 	return reflect.DeepEqual(json2, json1), nil
 }
 
-// xmlBytesEqual compares the JSON in two byte slices.
-func xmlBytesEqual(a, b []byte) (bool, error) {
-	// TODO: Implement it in the future
-	return false, nil
-}
 
 func dummyBytesEqual(a, b []byte) (bool, error) {
 	return bytes.Equal(a, b), nil
+}
+
+// compareHeaders compares two sets of HTTP headers and returns a list of headers that differ
+func (j *upstreamTestJob) compareHeaders(mainHeaders, testHeaders http.Header) []string {
+	var differentHeaders []string
+	skipHeadersMap := make(map[string]bool)
+
+	// Build skip headers map
+	for _, header := range j.routeConfig.SkipHeaders {
+		skipHeadersMap[strings.ToLower(header)] = true
+	}
+
+	// Check all headers in main response
+	for key, mainValues := range mainHeaders {
+		keyLower := strings.ToLower(key)
+		if skipHeadersMap[keyLower] {
+			continue
+		}
+
+		testValues, exists := testHeaders[key]
+		if !exists {
+			differentHeaders = append(differentHeaders, key)
+			continue
+		}
+
+		// Compare header values
+		if len(mainValues) != len(testValues) {
+			differentHeaders = append(differentHeaders, key)
+			continue
+		}
+
+		// Compare each value
+		different := false
+		for i, mainValue := range mainValues {
+			if mainValue != testValues[i] {
+				different = true
+				break
+			}
+		}
+
+		if different {
+			differentHeaders = append(differentHeaders, key)
+		}
+	}
+
+	// Check for headers that exist in test but not in main
+	for key := range testHeaders {
+		keyLower := strings.ToLower(key)
+		if skipHeadersMap[keyLower] {
+			continue
+		}
+
+		if _, exists := mainHeaders[key]; !exists {
+			differentHeaders = append(differentHeaders, key)
+		}
+	}
+
+	return differentHeaders
+}
+
+// isStatus2xx returns true if the status code is in the 2xx range (200-299)
+func isStatus2xx(statusCode int) bool {
+	return statusCode >= 200 && statusCode <= 299
 }
