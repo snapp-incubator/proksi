@@ -50,10 +50,10 @@ ingress:
   hosts:
     - host: chart-example.local
       paths:
-      - path: /
-        backend:
-          serviceName: chart-example.local
-          servicePort: 80
+        - path: /
+          backend:
+            serviceName: chart-example.local
+            servicePort: 80
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
@@ -85,6 +85,10 @@ tolerations: []
 affinity: {}
 
 # Configs
+# Log level for application logging
+# Options: debug, info, warn, error, fatal
+logLevel: "warn"
+
 # Storage backend type: "elasticsearch" or "stdout"
 # Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
 storageType: "stdout"
@@ -109,6 +113,60 @@ skipJsonPaths: []
 testProbability: 100
 
 logResponsePayload: true
+
+# Routes to skip entirely (no test upstream call)
+# TODO: removing this key from config causes config loader error..
+skipRoutes:
+  - "GET:/"
+  - "GET:/health"
+  - "GET:/healthz/readiness"
+  - "GET:/healthz"
+  - "GET:/healthz/liveness"
+  - "GET:/metrics"
+  - "POST:/metrics"
+
+# Global configuration that applies to all routes (unless overridden)
+globalConfig:
+  compareHeaders: false # Compare response headers by default
+  compareBody: true
+  skipHeaders: ["Date", "Server", "Content-Type"] # Headers to ignore during comparison
+  storeReqBody: false # Store request body when responses differ
+  storeRespBodies: true # Store response bodies when they differ
+  skipJsonPaths: [] # JSON paths to ignore during comparison
+  testProbability: 100 # Percentage of requests to send to test upstream
+
+routeConfigs:
+  "GET:/internal/v1/users":
+    compareHeaders: disable # Disable header comparison for this route
+    compareBody: disable
+    storeReqBody: enable # Store request body when responses differ
+    storeRespBodies: enable # Store response bodies when they differ
+    testProbability: 100 # Percentage of requests to send to test upstream
+  "GET:/api/v1/users/*/orders":
+    compareHeaders: disable
+    compareBody: enable
+    storeReqBody: enable
+    storeRespBodies: enable
+    testProbability: 50
+  "GET:/api/v1/users/*/invoices":
+    compareHeaders: disable
+    compareBody: enable
+    storeReqBody: enable
+    storeRespBodies: enable
+    testProbability: 100
+  # Example route configurations:
+  # "POST:/api/v1/users":
+  #   compareHeaders: false
+  #   storeReqBody: true
+  # "GET:/api/v1/users/*":
+  #   skipHeaders: ["Authorization"]
+  #   testProbability: 50
+  # "GET:/api/v1/orders/*/items":
+  #   skipHeaders: ["Order-Token"]
+  #   testProbability: 75
+  # "POST:/api/v1/users/*/posts/*":
+  #   storeReqBody: true
+  #   skipJsonPaths: ["user.id", "post.internal_id"]
 
 metrics:
   enabled: true

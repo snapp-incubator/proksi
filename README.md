@@ -6,4 +6,8 @@ Proksi is a set of tools and applications that help you shadow test your web app
 
 ## Proksi HTTP
 
-Proksi HTTP is an HTTP proxy server that shadow HTTP requests to a main and a test upstream and compare the responses. 
+Proksi HTTP is an HTTP proxy server that shadow HTTP requests to a main and a test upstream and compare the responses.
+
+## Documentation
+
+- **[Route Configuration Guide](doc/route_configuration.md)** - Comprehensive guide to configuring per-route behavior, including route parameter patterns, comparison settings, and best practices 

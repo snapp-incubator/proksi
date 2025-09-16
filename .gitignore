@@ -99,3 +99,5 @@ values.*.yaml
 !values.yaml
 
 .history/
+proksi-http
+CLAUDE.md
