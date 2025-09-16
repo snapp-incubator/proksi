@@ -47,16 +47,14 @@ func newHarness(t *testing.T, mainH, testH http.HandlerFunc, mutate func(*config
 	mainSrv := httptest.NewServer(mainH)
 	testSrv := httptest.NewServer(testH)
 
-	cfg := &config.HTTPConfig{
-		TestProbability:    100,
-		LogResponsePayload: true,
-		CompareHeaders:     true,
-	}
+	defaults := config.DefaultHTTP()
+	cfg := &defaults
 	cfg.Upstreams.Main.Address = mainSrv.URL
 	cfg.Upstreams.Test.Address = testSrv.URL
 	if mutate != nil {
 		mutate(cfg)
 	}
+	cfg.Finalize()
 
 	oldCfg, oldStrg, oldMain, oldTest := config.HTTP, strg, mainServiceClient, testServiceClient
 	config.HTTP = cfg

@@ -46,6 +46,27 @@ var (
 		Help:      "Duration of each request",
 		Buckets:   buckets,
 	}, []string{"method", "upstream"})
+
+	ComparisonResults = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "proksi",
+		Subsystem: "http",
+		Name:      "comparison_results",
+		Help:      "Results of upstream response comparisons",
+	}, []string{"diff_type"})
+
+	RouteSkipCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "proksi",
+		Subsystem: "http",
+		Name:      "route_skips",
+		Help:      "Counter for skipped routes",
+	}, []string{"skip_reason"})
+
+	StatusCode2xxVsNon2xxCounter = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "proksi",
+		Subsystem: "http",
+		Name:      "status_2xx_vs_non2xx_count",
+		Help:      "Counter for cases where main upstream returns 2xx but test upstream returns non-2xx",
+	})
 )
 
 // HTTPMismatchCounter counts responses that differ between main and test
