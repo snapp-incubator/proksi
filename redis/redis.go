@@ -17,6 +17,7 @@ import (
 	"github.com/snapp-incubator/proksi/internal/config"
 	"github.com/snapp-incubator/proksi/internal/logging"
 	"github.com/snapp-incubator/proksi/internal/metrics"
+	"github.com/snapp-incubator/proksi/internal/rediscluster"
 )
 
 var (
@@ -49,17 +50,17 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
-	mainClient, err := newUpstreamClient(c.Upstreams.Main.Address)
+	mainBackend, err := newBackend(c.Upstreams.Main)
 	if err != nil {
 		logging.L.Fatal("Error in connecting to the main upstream", zap.Error(err))
 	}
-	defer mainClient.close()
+	defer mainBackend.close()
 
-	testClient, err := newUpstreamClient(c.Upstreams.Test.Address)
+	testBackend, err := newBackend(c.Upstreams.Test)
 	if err != nil {
 		logging.L.Fatal("Error in connecting to the test upstream", zap.Error(err))
 	}
-	defer testClient.close()
+	defer testBackend.close()
 
 	jobs := make(chan Job, c.Worker.QueueSize)
 
@@ -72,9 +73,9 @@ func main() {
 	}
 
 	s := &server{
-		job:        jobs,
-		mainClient: mainClient,
-		testClient: testClient,
+		job:         jobs,
+		mainBackend: mainBackend,
+		testBackend: testBackend,
 	}
 
 	srv := redcon.NewServer(c.Bind, s.handle, accept, closed)
@@ -108,9 +109,9 @@ func main() {
 }
 
 type server struct {
-	job        chan Job
-	mainClient *upstreamClient
-	testClient *upstreamClient
+	job         chan Job
+	mainBackend backend
+	testBackend backend
 }
 
 // handle is the redcon command handler. It forwards the command to the main upstream
@@ -129,7 +130,7 @@ func (s *server) handle(conn redcon.Conn, cmd redcon.Command) {
 
 	// Forward the command to the main upstream synchronously.
 	timer := prometheus.NewTimer(metrics.RedisCmdDuration.WithLabelValues(command, "main_upstream"))
-	reply, err := s.mainClient.send(cmd.Raw)
+	reply, err := s.mainBackend.send(&cmd)
 	timer.ObserveDuration()
 	if err != nil {
 		metrics.RedisCmdCounter.WithLabelValues("client_error", "main_upstream").Inc()
@@ -140,6 +141,13 @@ func (s *server) handle(conn redcon.Conn, cmd redcon.Command) {
 
 	metrics.RedisCmdCounter.WithLabelValues(command, "main_upstream").Inc()
 
+	// If the main cluster reports that the key's slot has moved, refresh the topology
+	// in the background so subsequent commands route to the new owner. The reply is
+	// still returned verbatim; the client (or a retry) will land on the right node.
+	if isMovedReply(reply) {
+		s.mainBackend.refresh()
+	}
+
 	// Write the raw reply back to the client. The reply is the exact RESP bytes
 	// received from the main upstream, preserving the reply type (status, error,
 	// integer, bulk, array, ...).
@@ -149,8 +157,8 @@ func (s *server) handle(conn redcon.Conn, cmd redcon.Command) {
 	select {
 	case s.job <- &upstreamTestJob{
 		command: command,
-		raw:     cmd.Raw,
-		client:  s.testClient,
+		cmd:     &cmd,
+		backend: s.testBackend,
 		logFields: func(err error) []zap.Field {
 			return loggingFieldsWithError(err)
 		},
@@ -172,14 +180,14 @@ type Job interface {
 // the reply. Errors are logged but never returned to the client.
 type upstreamTestJob struct {
 	command   string
-	raw       []byte
-	client    *upstreamClient
+	cmd       *redcon.Command
+	backend   backend
 	logFields func(err error) []zap.Field
 }
 
 func (j *upstreamTestJob) Do() {
 	timer := prometheus.NewTimer(metrics.RedisCmdDuration.WithLabelValues(j.command, "test_upstream"))
-	_, err := j.client.send(j.raw)
+	_, err := j.backend.send(j.cmd)
 	timer.ObserveDuration()
 	if err != nil {
 		metrics.RedisCmdCounter.WithLabelValues("client_error", "test_upstream").Inc()
@@ -227,10 +235,14 @@ const readTimeout = 30 * time.Second
 // upstreamClient is a pooled client for a single redis upstream. It maintains a pool
 // of idle connections and dials new ones on demand.
 type upstreamClient struct {
-	addr    string
-	idle    chan net.Conn
-	closed  bool
-	closeMu sync.Mutex
+	addr string
+	idle chan net.Conn
+
+	// mu guards closed. wg tracks in-flight sends so close() can wait for them to
+	// finish (and their connections to be released) before tearing down the pool.
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
 }
 
 // newUpstreamClient creates a new pooled upstream client and verifies the upstream is
@@ -251,17 +263,22 @@ func newUpstreamClient(addr string) (*upstreamClient, error) {
 }
 
 func (c *upstreamClient) dial() (net.Conn, error) {
-	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-	if c.closed {
-		return nil, errors.New("upstream client is closed")
-	}
 	return net.DialTimeout("tcp", c.addr, 5*time.Second)
 }
 
 // send writes a raw RESP command to the upstream and reads back one complete raw RESP
-// reply. The connection is returned to the pool on success.
+// reply. The connection is returned to the pool on success. send registers itself with
+// the wait group so close() waits for in-flight commands before closing the pool.
 func (c *upstreamClient) send(raw []byte) ([]byte, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, errors.New("upstream client is closed")
+	}
+	c.wg.Add(1)
+	c.mu.Unlock()
+	defer c.wg.Done()
+
 	conn, err := c.acquire()
 	if err != nil {
 		return nil, err
@@ -295,14 +312,162 @@ func (c *upstreamClient) release(conn net.Conn) {
 	}
 }
 
+// close marks the client closed, waits for in-flight sends to release their
+// connections, then closes the idle channel and every pooled connection.
 func (c *upstreamClient) close() {
-	c.closeMu.Lock()
+	c.mu.Lock()
 	c.closed = true
-	c.closeMu.Unlock()
+	c.mu.Unlock()
+
+	c.wg.Wait()
+
 	close(c.idle)
 	for conn := range c.idle {
 		_ = conn.Close()
 	}
+}
+
+// backend is a single upstream target (standalone redis or a redis cluster). It routes
+// a command to the right node and returns the raw RESP reply.
+type backend interface {
+	send(cmd *redcon.Command) ([]byte, error)
+	// refresh re-pulls cluster topology (no-op for standalone backends).
+	refresh()
+	close()
+}
+
+// newBackend builds a backend for one upstream config: a cluster router when the
+// upstream is configured as a cluster, otherwise a standalone single-address client.
+func newBackend(u config.RedisUpstream) (backend, error) {
+	if u.Cluster.Enabled {
+		return newClusterBackend(u.Cluster.Addresses)
+	}
+	return newStandaloneBackend(u.Address)
+}
+
+// standaloneBackend forwards every command to a single upstream address.
+type standaloneBackend struct {
+	client *upstreamClient
+}
+
+func newStandaloneBackend(addr string) (*standaloneBackend, error) {
+	c, err := newUpstreamClient(addr)
+	if err != nil {
+		return nil, err
+	}
+	return &standaloneBackend{client: c}, nil
+}
+
+func (b *standaloneBackend) send(cmd *redcon.Command) ([]byte, error) {
+	return b.client.send(cmd.Raw)
+}
+
+func (b *standaloneBackend) refresh() {}
+
+func (b *standaloneBackend) close() { b.client.close() }
+
+// clusterBackend routes each keyed command to the cluster node that owns its slot,
+// maintaining a connection pool per node. Keyless commands go to the fallback seed.
+type clusterBackend struct {
+	router *rediscluster.Router
+
+	mu    sync.Mutex
+	pools map[string]*upstreamClient
+}
+
+func newClusterBackend(seeds []string) (*clusterBackend, error) {
+	router, err := rediscluster.NewRouter(seeds, func(addr string) (net.Conn, error) {
+		return net.DialTimeout("tcp", addr, 5*time.Second)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &clusterBackend{
+		router: router,
+		pools:  make(map[string]*upstreamClient),
+	}, nil
+}
+
+// poolFor returns (creating on first use) the connection pool for a node address.
+func (b *clusterBackend) poolFor(addr string) (*upstreamClient, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if c, ok := b.pools[addr]; ok {
+		return c, nil
+	}
+	c, err := newUpstreamClient(addr)
+	if err != nil {
+		return nil, err
+	}
+	b.pools[addr] = c
+	return c, nil
+}
+
+func (b *clusterBackend) send(cmd *redcon.Command) ([]byte, error) {
+	addr := b.router.Fallback()
+	if key := firstKey(cmd); key != nil {
+		addr = b.router.Route(key)
+	}
+
+	pool, err := b.poolFor(addr)
+	if err != nil {
+		return nil, err
+	}
+	return pool.send(cmd.Raw)
+}
+
+func (b *clusterBackend) refresh() {
+	// Re-pull topology in the background so a MOVED reply doesn't stall the client.
+	go func() {
+		if err := b.router.Refresh(nil); err != nil {
+			logging.L.Warn("failed to refresh cluster topology", zap.Error(err))
+		}
+	}()
+}
+
+func (b *clusterBackend) close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, c := range b.pools {
+		c.close()
+	}
+}
+
+// firstKey returns the first key of a command (cmd.Args[1] for commands with at least
+// one argument after the command name), or nil for keyless commands (PING, INFO, ...).
+func firstKey(cmd *redcon.Command) []byte {
+	if len(cmd.Args) >= 2 {
+		return cmd.Args[1]
+	}
+	return nil
+}
+
+// isMovedReply reports whether a raw RESP reply is a -MOVED or -ASK cluster redirect.
+func isMovedReply(reply []byte) bool {
+	if len(reply) < 2 || reply[0] != '-' {
+		return false
+	}
+	line := string(reply[1:])
+	return hasPrefixFold(line, "MOVED ") || hasPrefixFold(line, "ASK ")
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		a, c := s[i], prefix[i]
+		if a >= 'a' && a <= 'z' {
+			a -= 'a' - 'A'
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		if a != c {
+			return false
+		}
+	}
+	return true
 }
 
 // roundTrip writes a raw RESP command to conn and reads back one complete raw RESP reply.

@@ -21,11 +21,11 @@ var defaultRedis = RedisConfig{
 		Bind:    "0.0.0.0:9001",
 	},
 	Upstreams: struct {
-		Main redisUpstream `koanf:"main"`
-		Test redisUpstream `koanf:"test"`
+		Main RedisUpstream `koanf:"main"`
+		Test RedisUpstream `koanf:"test"`
 	}{
-		Main: redisUpstream{Address: "127.0.0.1:6379"},
-		Test: redisUpstream{Address: "127.0.0.1:6380"},
+		Main: RedisUpstream{Address: "127.0.0.1:6379"},
+		Test: RedisUpstream{Address: "127.0.0.1:6380"},
 	},
 	Worker: worker{
 		Count:     50,
@@ -38,14 +38,23 @@ type RedisConfig struct {
 	Bind      string `koanf:"bind"`
 	Metrics   metric `koanf:"metrics"`
 	Upstreams struct {
-		Main redisUpstream `koanf:"main"`
-		Test redisUpstream `koanf:"test"`
+		Main RedisUpstream `koanf:"main"`
+		Test RedisUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
 	Worker worker `koanf:"worker"`
 }
 
-type redisUpstream struct {
-	Address string `koanf:"address"`
+type RedisUpstream struct {
+	Address string              `koanf:"address"`
+	Cluster RedisClusterUpstream `koanf:"cluster"`
+}
+
+// RedisClusterUpstream configures a Redis Cluster upstream. When Enabled, the proxy
+// routes each keyed command to the node that owns its slot, discovering the topology
+// via CLUSTER SLOTS against Addresses (the seed nodes).
+type RedisClusterUpstream struct {
+	Enabled   bool     `koanf:"enabled"`
+	Addresses []string `koanf:"addresses"`
 }
 
 // LoadRedis function will load the file located in path and return the parsed config for ProksiRedis. This function will panic on errors

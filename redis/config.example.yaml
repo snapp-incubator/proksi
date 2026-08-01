@@ -12,10 +12,20 @@ upstreams:
   # The response of the command will be the main upstream response.
   main:
     address: "127.0.0.1:6379"
+    # Optional: treat this upstream as a Redis Cluster. When enabled, the proxy discovers
+    # the slot->node topology via CLUSTER SLOTS against the seed addresses and routes each
+    # keyed command to the node that owns its slot. Omit or set enabled:false for a single
+    # (standalone) upstream, where every command goes to `address`.
+    cluster:
+      enabled: false
+      addresses: ["127.0.0.1:6379"]
   # test is the upstream that we want to test its behavior.
   # The commands will be sent to the test upstream asynchronously and its response will be discarded.
   test:
     address: "127.0.0.1:6380"
+    cluster:
+      enabled: false
+      addresses: ["127.0.0.1:6380"]
 
 # Worker pool configurations
 worker:
