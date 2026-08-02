@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/tidwall/redcon"
+
+	"github.com/snapp-incubator/proksi/internal/rediscluster"
 )
 
 // fakeUpstream is a minimal redis upstream backed by a redcon server. It records every
@@ -155,17 +157,17 @@ func TestProxyEndToEnd(t *testing.T) {
 	}
 	defer test.stop()
 
-	mainClient, err := newUpstreamClient(main.addr)
+	mainBackend, err := newStandaloneBackend(main.addr)
 	if err != nil {
-		t.Fatalf("main upstream client: %v", err)
+		t.Fatalf("main upstream backend: %v", err)
 	}
-	defer mainClient.close()
+	defer mainBackend.close()
 
-	testClient, err := newUpstreamClient(test.addr)
+	testBackend, err := newStandaloneBackend(test.addr)
 	if err != nil {
-		t.Fatalf("test upstream client: %v", err)
+		t.Fatalf("test upstream backend: %v", err)
 	}
-	defer testClient.close()
+	defer testBackend.close()
 
 	jobs := make(chan Job, 256)
 	for i := 0; i < 8; i++ {
@@ -177,7 +179,7 @@ func TestProxyEndToEnd(t *testing.T) {
 	}
 	defer close(jobs)
 
-	s := &server{job: jobs, mainClient: mainClient, testClient: testClient}
+	s := &server{job: jobs, mainBackend: mainBackend, testBackend: testBackend}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -239,4 +241,152 @@ func TestProxyEndToEnd(t *testing.T) {
 	if got := test.count(); got != wantCount {
 		t.Fatalf("test upstream received %d commands, want %d", got, wantCount)
 	}
+}
+
+// TestProxyClusterRouting verifies that with a cluster backend the proxy routes each
+// keyed command to the node that owns its slot (per CLUSTER SLOTS) and still mirrors
+// the command to the test upstream.
+func TestProxyClusterRouting(t *testing.T) {
+	// Two fake "master" nodes for the main cluster. nodeA owns slots 0..5460, nodeB the rest.
+	nodeA, err := newFakeUpstream(func(cmd redcon.Command) []byte {
+		return []byte("+OK\r\n")
+	})
+	if err != nil {
+		t.Fatalf("start nodeA: %v", err)
+	}
+	defer nodeA.stop()
+
+	nodeB, err := newFakeUpstream(func(cmd redcon.Command) []byte {
+		return []byte("+OK\r\n")
+	})
+	if err != nil {
+		t.Fatalf("start nodeB: %v", err)
+	}
+	defer nodeB.stop()
+
+	// The seed node answers CLUSTER SLOTS, advertising nodeA/nodeB as the masters.
+	seed, err := newFakeUpstream(func(cmd redcon.Command) []byte {
+		if strings.EqualFold(string(cmd.Args[0]), "cluster") {
+			return clusterSlotsReply(nodeA.addr, nodeB.addr)
+		}
+		return []byte("+OK\r\n")
+	})
+	if err != nil {
+		t.Fatalf("start seed: %v", err)
+	}
+	defer seed.stop()
+
+	// Test upstream: any single node; just records mirrored commands.
+	test, err := newFakeUpstream(func(cmd redcon.Command) []byte {
+		return []byte("+OK\r\n")
+	})
+	if err != nil {
+		t.Fatalf("start test upstream: %v", err)
+	}
+	defer test.stop()
+
+	// Build the cluster backend against the seed.
+	cluster, err := newClusterBackend([]string{seed.addr})
+	if err != nil {
+		t.Fatalf("newClusterBackend: %v", err)
+	}
+	defer cluster.close()
+
+	testBackend, err := newStandaloneBackend(test.addr)
+	if err != nil {
+		t.Fatalf("test backend: %v", err)
+	}
+	defer testBackend.close()
+
+	jobs := make(chan Job, 256)
+	for i := 0; i < 8; i++ {
+		go func() {
+			for job := range jobs {
+				job.Do()
+			}
+		}()
+	}
+	defer close(jobs)
+
+	s := &server{job: jobs, mainBackend: cluster, testBackend: testBackend}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	proxyAddr := ln.Addr().String()
+	srv := redcon.NewServer(proxyAddr, s.handle, accept, closed)
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+
+	cli, err := dialResp(proxyAddr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer cli.close()
+
+	// Pick keys that land on each half of the slot space.
+	keyA := keyForSlot(t, func(slot int) bool { return slot <= 5460 })
+	keyB := keyForSlot(t, func(slot int) bool { return slot > 5460 })
+
+	if _, err := cli.do("SET", keyA, "1"); err != nil {
+		t.Fatalf("SET %s: %v", keyA, err)
+	}
+	if _, err := cli.do("SET", keyB, "1"); err != nil {
+		t.Fatalf("SET %s: %v", keyB, err)
+	}
+
+	// The slot-low key must have gone to nodeA, the slot-high key to nodeB.
+	if got := nodeA.count(); got != 1 {
+		t.Fatalf("nodeA received %d commands, want 1", got)
+	}
+	if got := nodeB.count(); got != 1 {
+		t.Fatalf("nodeB received %d commands, want 1", got)
+	}
+
+	// Both commands must be mirrored to the test upstream asynchronously.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && test.count() < 2 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := test.count(); got != 2 {
+		t.Fatalf("test upstream received %d commands, want 2", got)
+	}
+}
+
+// clusterSlotsReply builds a CLUSTER SLOTS reply mapping 0..5460 to addrA and the rest to addrB.
+func clusterSlotsReply(addrA, addrB string) []byte {
+	hostA, portA, _ := net.SplitHostPort(addrA)
+	hostB, portB, _ := net.SplitHostPort(addrB)
+	var b []byte
+	b = append(b, []byte("*2\r\n")...)
+	// range 1
+	b = append(b, []byte("*3\r\n:0\r\n:5460\r\n")...)
+	b = append(b, nodeInfo(hostA, portA)...)
+	// range 2
+	b = append(b, []byte("*3\r\n:5461\r\n:16383\r\n")...)
+	b = append(b, nodeInfo(hostB, portB)...)
+	return b
+}
+
+func nodeInfo(host, port string) []byte {
+	var b []byte
+	b = append(b, []byte("*3\r\n")...)
+	b = append(b, []byte("$"+fmt.Sprint(len(host))+"\r\n"+host+"\r\n")...)
+	b = append(b, []byte(":"+port+"\r\n")...)
+	b = append(b, []byte("$9\r\nnode-0001\r\n")...)
+	return b
+}
+
+// keyForSlot returns a key whose slot satisfies pred.
+func keyForSlot(t *testing.T, pred func(int) bool) string {
+	t.Helper()
+	for i := 0; i < 100000; i++ {
+		k := fmt.Sprintf("key-%d", i)
+		if pred(rediscluster.KeySlot([]byte(k))) {
+			return k
+		}
+	}
+	t.Fatal("no key found for predicate")
+	return ""
 }
