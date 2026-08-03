@@ -235,8 +235,9 @@ const readTimeout = 30 * time.Second
 // upstreamClient is a pooled client for a single redis upstream. It maintains a pool
 // of idle connections and dials new ones on demand.
 type upstreamClient struct {
-	addr string
-	idle chan net.Conn
+	addr     string
+	password string
+	idle     chan net.Conn
 
 	// mu guards closed. wg tracks in-flight sends so close() can wait for them to
 	// finish (and their connections to be released) before tearing down the pool.
@@ -247,10 +248,11 @@ type upstreamClient struct {
 
 // newUpstreamClient creates a new pooled upstream client and verifies the upstream is
 // reachable by dialing a probe connection.
-func newUpstreamClient(addr string) (*upstreamClient, error) {
+func newUpstreamClient(addr string, password string) (*upstreamClient, error) {
 	c := &upstreamClient{
-		addr: addr,
-		idle: make(chan net.Conn, 32),
+		addr:     addr,
+		password: password,
+		idle:     make(chan net.Conn, 32),
 	}
 
 	conn, err := c.dial()
@@ -262,8 +264,32 @@ func newUpstreamClient(addr string) (*upstreamClient, error) {
 	return c, nil
 }
 
+// dial opens a new TCP connection to the upstream and, when a password is
+// configured, authenticates it with AUTH before handing it out.
 func (c *upstreamClient) dial() (net.Conn, error) {
-	return net.DialTimeout("tcp", c.addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", c.addr, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.password != "" {
+		authCmd := redcon.AppendArray(nil, 2)
+		authCmd = redcon.AppendBulkString(authCmd, "AUTH")
+		authCmd = redcon.AppendBulkString(authCmd, c.password)
+		reply, err := roundTrip(conn, authCmd)
+		if err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		// A successful AUTH replies with the simple string "OK". Anything else
+		// (e.g. an -ERR reply) means the credentials were rejected.
+		if string(reply) != "+OK\r\n" {
+			_ = conn.Close()
+			return nil, errors.New("authentication to the upstream failed: " + string(reply))
+		}
+	}
+
+	return conn, nil
 }
 
 // send writes a raw RESP command to the upstream and reads back one complete raw RESP
@@ -340,9 +366,9 @@ type backend interface {
 // upstream is configured as a cluster, otherwise a standalone single-address client.
 func newBackend(u config.RedisUpstream) (backend, error) {
 	if u.Cluster.Enabled {
-		return newClusterBackend(u.Cluster.Addresses)
+		return newClusterBackend(u.Cluster.Addresses, u.Password)
 	}
-	return newStandaloneBackend(u.Address)
+	return newStandaloneBackend(u.Address, u.Password)
 }
 
 // standaloneBackend forwards every command to a single upstream address.
@@ -350,8 +376,8 @@ type standaloneBackend struct {
 	client *upstreamClient
 }
 
-func newStandaloneBackend(addr string) (*standaloneBackend, error) {
-	c, err := newUpstreamClient(addr)
+func newStandaloneBackend(addr string, password string) (*standaloneBackend, error) {
+	c, err := newUpstreamClient(addr, password)
 	if err != nil {
 		return nil, err
 	}
@@ -369,13 +395,14 @@ func (b *standaloneBackend) close() { b.client.close() }
 // clusterBackend routes each keyed command to the cluster node that owns its slot,
 // maintaining a connection pool per node. Keyless commands go to the fallback seed.
 type clusterBackend struct {
-	router *rediscluster.Router
+	router   *rediscluster.Router
+	password string
 
 	mu    sync.Mutex
 	pools map[string]*upstreamClient
 }
 
-func newClusterBackend(seeds []string) (*clusterBackend, error) {
+func newClusterBackend(seeds []string, password string) (*clusterBackend, error) {
 	router, err := rediscluster.NewRouter(seeds, func(addr string) (net.Conn, error) {
 		return net.DialTimeout("tcp", addr, 5*time.Second)
 	})
@@ -383,8 +410,9 @@ func newClusterBackend(seeds []string) (*clusterBackend, error) {
 		return nil, err
 	}
 	return &clusterBackend{
-		router: router,
-		pools:  make(map[string]*upstreamClient),
+		router:   router,
+		password: password,
+		pools:    make(map[string]*upstreamClient),
 	}, nil
 }
 
@@ -395,7 +423,7 @@ func (b *clusterBackend) poolFor(addr string) (*upstreamClient, error) {
 	if c, ok := b.pools[addr]; ok {
 		return c, nil
 	}
-	c, err := newUpstreamClient(addr)
+	c, err := newUpstreamClient(addr, b.password)
 	if err != nil {
 		return nil, err
 	}

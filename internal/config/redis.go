@@ -45,8 +45,11 @@ type RedisConfig struct {
 }
 
 type RedisUpstream struct {
-	Address string              `koanf:"address"`
-	Cluster RedisClusterUpstream `koanf:"cluster"`
+	Address string `koanf:"address"`
+	// Password, when non-empty, is sent as AUTH to the upstream on every new
+	// connection (initial dial, pool growth, reconnects after failures).
+	Password string               `koanf:"password"`
+	Cluster  RedisClusterUpstream `koanf:"cluster"`
 }
 
 // RedisClusterUpstream configures a Redis Cluster upstream. When Enabled, the proxy

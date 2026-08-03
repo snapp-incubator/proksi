@@ -20,6 +20,9 @@ data:
       # The response of the command will be the main upstream response.
       main:
         address: {{ .Values.upstreams.main.address | quote }}
+        {{- if .Values.upstreams.main.password }}
+        password: {{ .Values.upstreams.main.password | quote }}
+        {{- end }}
         cluster:
           enabled: {{ .Values.upstreams.main.cluster.enabled }}
           addresses:
@@ -30,6 +33,9 @@ data:
       # The commands will be sent to the test upstream asynchronously and its response will be discarded.
       test:
         address: {{ .Values.upstreams.test.address | quote }}
+        {{- if .Values.upstreams.test.password }}
+        password: {{ .Values.upstreams.test.password | quote }}
+        {{- end }}
         cluster:
           enabled: {{ .Values.upstreams.test.cluster.enabled }}
           addresses:
