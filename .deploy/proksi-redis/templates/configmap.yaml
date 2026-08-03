@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "proksi.fullname" . }}
+  labels:
+    {{- include "proksi.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    # Redis server bind address to serve Proksi
+    bind: "0.0.0.0:{{ .Values.service.containerPort }}"
+
+    # Config of exposing Prometheus metrics
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      bind: "0.0.0.0:{{ .Values.metrics.containerPort }}"
+
+    # List of upstreams to proxy the command to them
+    upstreams:
+      # main is the upstream that we are sure about its behavior and its response will be the criterion.
+      # The response of the command will be the main upstream response.
+      main:
+        address: {{ .Values.upstreams.main.address | quote }}
+        {{- if .Values.upstreams.main.password }}
+        password: {{ .Values.upstreams.main.password | quote }}
+        {{- end }}
+        cluster:
+          enabled: {{ .Values.upstreams.main.cluster.enabled }}
+          addresses:
+            {{- range .Values.upstreams.main.cluster.addresses }}
+            - {{ . | quote }}
+            {{- end }}
+      # test is the upstream that we want to test its behavior.
+      # The commands will be sent to the test upstream asynchronously and its response will be discarded.
+      test:
+        address: {{ .Values.upstreams.test.address | quote }}
+        {{- if .Values.upstreams.test.password }}
+        password: {{ .Values.upstreams.test.password | quote }}
+        {{- end }}
+        cluster:
+          enabled: {{ .Values.upstreams.test.cluster.enabled }}
+          addresses:
+            {{- range .Values.upstreams.test.cluster.addresses }}
+            - {{ . | quote }}
+            {{- end }}
+
+    # Worker pool configurations
+    worker:
+      count: {{ .Values.worker.count }}                  # Number of go-routines of the pool
+      queue_size: {{ .Values.worker.queueSize }}         # Size of the queue (buffered channel size)
