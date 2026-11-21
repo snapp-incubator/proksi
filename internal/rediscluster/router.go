@@ -89,7 +89,7 @@ func fetchTopology(seed string, dial DialFunc) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
@@ -199,7 +199,7 @@ func parseRESP(b []byte) (respValue, []byte, error) {
 	case ':': // integer
 		line, rest, err := readLine(b[1:])
 		var n int
-		fmt.Sscanf(string(line), "%d", &n)
+		_, _ = fmt.Sscanf(string(line), "%d", &n)
 		return respValue{num: n}, rest, err
 	case '$': // bulk string
 		line, rest, err := readLine(b[1:])
@@ -207,7 +207,7 @@ func parseRESP(b []byte) (respValue, []byte, error) {
 			return respValue{}, nil, err
 		}
 		var n int
-		fmt.Sscanf(string(line), "%d", &n)
+		_, _ = fmt.Sscanf(string(line), "%d", &n)
 		if n < 0 {
 			return respValue{}, rest, nil
 		}
@@ -221,7 +221,7 @@ func parseRESP(b []byte) (respValue, []byte, error) {
 			return respValue{}, nil, err
 		}
 		var n int
-		fmt.Sscanf(string(line), "%d", &n)
+		_, _ = fmt.Sscanf(string(line), "%d", &n)
 		if n <= 0 {
 			return respValue{}, rest, nil
 		}

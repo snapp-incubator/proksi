@@ -188,7 +188,7 @@ func TestProxyEndToEnd(t *testing.T) {
 	proxyAddr := ln.Addr().String()
 	srv := redcon.NewServer(proxyAddr, s.handle, accept, closed)
 	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	// Wait for the proxy to accept connections.
 	if c, err := net.DialTimeout("tcp", proxyAddr, 1*time.Second); err == nil {
@@ -317,7 +317,7 @@ func TestProxyClusterRouting(t *testing.T) {
 	proxyAddr := ln.Addr().String()
 	srv := redcon.NewServer(proxyAddr, s.handle, accept, closed)
 	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	cli, err := dialResp(proxyAddr)
 	if err != nil {
