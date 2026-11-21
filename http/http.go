@@ -174,8 +174,14 @@ func main() {
 		stop()
 	}
 
-	logging.L.Info("Shutting down: no longer accepting requests", zap.Duration("timeout", shutdownTimeout))
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	gracefulShutdown(srv, jobs, &workers, shutdownTimeout)
+}
+
+// gracefulShutdown stops accepting requests, then closes the job queue and waits
+// for the workers to drain it, all bounded by timeout.
+func gracefulShutdown(srv *http.Server, jobs chan Job, workers *sync.WaitGroup, timeout time.Duration) {
+	logging.L.Info("Shutting down: no longer accepting requests", zap.Duration("timeout", timeout))
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
