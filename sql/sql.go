@@ -69,7 +69,7 @@ func main() {
 		errsig := make(chan bool)
 
 		go func() {
-			defer p.lconn.Close()
+			defer func() { _ = p.lconn.Close() }()
 
 			var err error
 			p.rconn, err = net.DialTCP("tcp", nil, p.raddr)
@@ -77,7 +77,7 @@ func main() {
 				log.Printf("Remote connection failed: %s\n", err)
 				return
 			}
-			defer p.rconn.Close()
+			defer func() { _ = p.rconn.Close() }()
 
 			//display both ends
 			log.Printf("Opened %s >>> %s\n", p.laddr.String(), p.raddr.String())
@@ -117,7 +117,7 @@ func (p *Proxy) pipe(src, dst io.ReadWriter, errsig chan bool) {
 		//log.Println(string(b))
 
 		//write out result
-		n, err = dst.Write(b)
+		_, err = dst.Write(b)
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("Write failed '%s'\n", err)
