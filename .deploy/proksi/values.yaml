@@ -85,6 +85,10 @@ tolerations: []
 affinity: {}
 
 # Configs
+# Storage backend type: "elasticsearch" or "stdout"
+# Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
+storageType: "stdout"
+
 elasticsearch:
   addresses: ["http://elastic-http:9200"]
   username: ""
@@ -100,9 +104,15 @@ worker:
   count: 50
   queueSize: 2048
 
+skipJsonPaths: []
+
+testProbability: 100
+
+logResponsePayload: true
+
 metrics:
   enabled: true
   containerPort: 9001
-  serviceMonitor:
+  podMonitor:
     enabled: true
     interval: "10s"

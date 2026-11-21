@@ -6,6 +6,10 @@ metrics:
   enabled: true
   bind: "0.0.0.0:9001"
 
+# Storage backend type: "elasticsearch" or "stdout"
+# Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
+storage_type: "stdout"
+
 # List of upstreams to proxy the request to them
 upstreams:
   # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
@@ -30,3 +34,19 @@ elasticsearch:
   api_key: ""                     # Base64-encoded token for authorization; if set, overrides username/password and service token.
   service_token: ""               # Service token for authorization; if set, overrides username/password.
   certificate_fingerprint: ""     # SHA256 hex fingerprint given by Elasticsearch on first launch.
+
+# List of json path to be skipped on response comparison
+skip_json_paths: []
+
+# An integer number between 0 and 100 shows how often the incoming request should be sent to the test upstream for compare.
+# Be aware that this option won't affect the number of requests sending to the main upstream.
+# 100 indicates that all the requests will be sent to the test upstream too.
+# 0 indicates that none of the requests will be sent to the test upstream.
+# 43 indicates that 43% of the requests will be sent to the test upstream.
+test_probability: 100
+
+# Indicates whether to log response body of main and test upstreams or not.
+log_response_payload: true
+
+# Indicates whether to compare response headers between main and test upstreams or not.
+compare_headers: true

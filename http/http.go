@@ -13,9 +13,11 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 
 	"github.com/snapp-incubator/proksi/internal/config"
@@ -45,15 +47,13 @@ func init() {
 }
 
 func main() {
-	var err error
-
 	// Usage Demo
 	if help {
 		flag.Usage()
 		return
 	}
 
-	c := config.Load(configPath)
+	c := config.LoadHTTP(configPath)
 
 	if c.Upstreams.Main.Address == "" {
 		logging.L.Fatal("Main upstream backend can not be empty.")
@@ -63,28 +63,36 @@ func main() {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
 
-	elasticConfig := elasticsearch.Config{
-		Addresses:              c.Elasticsearch.Addresses,
-		Username:               c.Elasticsearch.Username,
-		Password:               c.Elasticsearch.Password,
-		CloudID:                c.Elasticsearch.CloudID,
-		APIKey:                 c.Elasticsearch.APIKey,
-		ServiceToken:           c.Elasticsearch.ServiceToken,
-		CertificateFingerprint: c.Elasticsearch.CertificateFingerprint,
-	}
-	es, err := elasticsearch.NewClient(elasticConfig)
-	if err != nil {
-		logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
-	}
+	// Initialize storage backend based on configuration
+	switch c.StorageType {
+	case "stdout":
+		strg = &storage.StdoutStorage{}
+		logging.L.Info("Using stdout storage backend")
+	case "elasticsearch":
+		elasticConfig := elasticsearch.Config{
+			Addresses:              c.Elasticsearch.Addresses,
+			Username:               c.Elasticsearch.Username,
+			Password:               c.Elasticsearch.Password,
+			CloudID:                c.Elasticsearch.CloudID,
+			APIKey:                 c.Elasticsearch.APIKey,
+			ServiceToken:           c.Elasticsearch.ServiceToken,
+			CertificateFingerprint: c.Elasticsearch.CertificateFingerprint,
+		}
+		es, err := elasticsearch.NewClient(elasticConfig)
+		if err != nil {
+			logging.L.Fatal("Error in connecting to Elasticsearch", zap.Error(err))
+		}
 
-	esInfo, err := es.Info()
-	if err != nil {
-		logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
+		esInfo, err := es.Info()
+		if err != nil {
+			logging.L.Fatal("Error in getting info from Elasticsearch", zap.Error(err))
+		}
+
+		logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
+		strg = &storage.ElasticStorage{ES: es}
+	default:
+		logging.L.Fatal("Unknown storage type", zap.String("storage_type", c.StorageType))
 	}
-
-	logging.L.Info("Connected to Elasticsearch", zap.String("info", esInfo.String()))
-
-	strg = &storage.ElasticStorage{ES: es}
 
 	jobs := make(chan Job, c.Worker.QueueSize)
 
@@ -133,7 +141,8 @@ func main() {
 }
 
 type server struct {
-	job chan Job
+	job        chan Job
+	reqCounter uint64
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
@@ -179,7 +188,6 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
-
 	// TODO: Array in HTTP header values (issue #1)
 	for headerKey, headerValue := range mainRes.Header {
 		if len(headerValue) == 1 {
@@ -205,28 +213,20 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	s.job <- &upstreamTestJob{
-		req:                    req,
-		reqBodyReader:          reqBodyReader,
-		loggingFieldsWithError: loggingFieldsWithError,
-		loggingFields:          loggingFields,
-		mainRes:                mainRes,
-		mainResBodyReader:      mainResBodyReader,
+	atomic.AddUint64(&s.reqCounter, 1)
+	inBucket := s.reqCounter%100 < config.HTTP.TestProbability-1
+	if inBucket {
+		s.job <- &upstreamTestJob{
+			req:                    req,
+			reqBodyReader:          reqBodyReader,
+			loggingFieldsWithError: loggingFieldsWithError,
+			loggingFields:          loggingFields,
+			mainRes:                mainRes,
+			mainResBodyReader:      mainResBodyReader,
+		}
+	} else {
+		logging.L.Info("Sending request without test upstream", loggingFields(mainRes.StatusCode, mainRes.StatusCode)...)
 	}
-}
-
-// JSONBytesEqual compares the JSON in two byte slices.
-func JSONBytesEqual(a, b []byte) (bool, error) {
-	var json1, json2 interface{}
-	if err := json.Unmarshal(a, &json1); err != nil {
-		return false, err
-	}
-
-	if err := json.Unmarshal(b, &json2); err != nil {
-		return false, err
-	}
-
-	return reflect.DeepEqual(json2, json1), nil
 }
 
 type Job interface {
@@ -303,24 +303,119 @@ func (j *upstreamTestJob) Do() {
 		return
 	}
 
-	equalBody, err := JSONBytesEqual(mainResBody, testResBody)
+	mainResContentType := j.mainRes.Header.Get("content-type")
+	if config.HTTP.CompareHeaders {
+		testResContentType := testRes.Header.Get("content-type")
+		if mainResContentType != testResContentType {
+			logging.L.Warn("NOT equal content-type to compare",
+				j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
+			err = strg.Store(storage.Log{
+				URL:                    j.req.URL.String(),
+				Headers:                j.req.Header,
+				MainUpstreamStatusCode: j.mainRes.StatusCode,
+				TestUpstreamStatusCode: testRes.StatusCode,
+			})
+			return
+		}
+	}
+
+	var comparator bodyEqualizerFunc
+	var responseSkipPath bool
+
+	switch strings.ToLower(mainResContentType) {
+	case "application/json", "application/ld+json":
+		responseSkipPath = true
+		comparator = JSONBytesEqual
+	// TODO: We didn't have time to implement it.
+	// case "application/xml", "application/xhtml+xml", "text/xml":
+	//	responseSkipPath = false
+	//	comparator = xmlBytesEqual
+	default:
+		responseSkipPath = false
+		comparator = dummyBytesEqual
+	}
+
+	equalBody, err := comparator(mainResBody, testResBody)
 	if err != nil {
-		logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+		logging.L.Error("error in response equality check", j.loggingFieldsWithError(err)...)
 		return
+	}
+
+	if !equalBody && responseSkipPath {
+		if testRes.StatusCode == j.mainRes.StatusCode {
+			srcBodyStr := string(mainResBody)
+			testBodyStr := string(testResBody)
+
+			for i := 0; i < len(config.HTTP.SkipJSONPaths); i++ {
+				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				if err != nil {
+					panic(err)
+				}
+
+				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			mainResBody = []byte(srcBodyStr)
+			testResBody = []byte(testBodyStr)
+
+			equalBody, err = JSONBytesEqual(mainResBody, testResBody)
+			if err != nil {
+				logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+				return
+			}
+		}
 	}
 
 	if equalBody {
 		logging.L.Info("Equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
 		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
-		err = strg.Store(storage.Log{
+		l := storage.Log{
 			URL:                    j.req.URL.String(),
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
-		})
+		}
+
+		if config.HTTP.LogResponsePayload {
+			mainResBodyStr := string(mainResBody)
+			testResBodyStr := string(testResBody)
+			l.MainUpstreamResponsePayload = &mainResBodyStr
+			l.TestUpstreamResponsePayload = &testResBodyStr
+		}
+
+		err = strg.Store(l)
 		if err != nil {
 			logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
 		}
 	}
+}
+
+type bodyEqualizerFunc func(a, b []byte) (bool, error)
+
+// JSONBytesEqual compares the JSON in two byte slices.
+func JSONBytesEqual(a, b []byte) (bool, error) {
+	var json1, json2 interface{}
+	if err := json.Unmarshal(a, &json1); err != nil {
+		return false, err
+	}
+
+	if err := json.Unmarshal(b, &json2); err != nil {
+		return false, err
+	}
+
+	return reflect.DeepEqual(json2, json1), nil
+}
+
+// xmlBytesEqual compares the JSON in two byte slices.
+func xmlBytesEqual(a, b []byte) (bool, error) {
+	// TODO: Implement it in the future
+	return false, nil
+}
+
+func dummyBytesEqual(a, b []byte) (bool, error) {
+	return bytes.Equal(a, b), nil
 }
