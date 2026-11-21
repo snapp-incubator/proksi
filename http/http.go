@@ -41,12 +41,12 @@ var (
 func init() {
 	flag.BoolVar(&help, "help", false, "Show help")
 	flag.StringVar(&configPath, "config", "", "The path of config file")
-
-	// Parse the terminal flags
-	flag.Parse()
 }
 
 func main() {
+	// Parse the terminal flags (not in init, so the test binary can parse its own flags)
+	flag.Parse()
+
 	// Usage Demo
 	if help {
 		flag.Usage()
@@ -329,10 +329,9 @@ func (j *upstreamTestJob) Do() {
 	case "application/json", "application/ld+json":
 		responseSkipPath = true
 		comparator = JSONBytesEqual
-	// TODO: Implement an XML comparator (xmlBytesEqual), see issue #32.
-	// case "application/xml", "application/xhtml+xml", "text/xml":
-	//	responseSkipPath = false
-	//	comparator = xmlBytesEqual
+	case "application/xml", "application/xhtml+xml", "text/xml":
+		responseSkipPath = false
+		comparator = xmlBytesEqual
 	default:
 		responseSkipPath = false
 		comparator = dummyBytesEqual
@@ -349,25 +348,28 @@ func (j *upstreamTestJob) Do() {
 			srcBodyStr := string(mainResBody)
 			testBodyStr := string(testResBody)
 
-			for i := 0; i < len(config.HTTP.SkipJSONPaths); i++ {
-				srcBodyStr, err = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
-				if err != nil {
-					panic(err)
+			var skipErr error
+			for i := 0; i < len(config.HTTP.SkipJSONPaths) && skipErr == nil; i++ {
+				srcBodyStr, skipErr = sjson.Set(srcBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
+				if skipErr != nil {
+					break
 				}
-
-				testBodyStr, err = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
-				if err != nil {
-					panic(err)
-				}
+				testBodyStr, skipErr = sjson.Set(testBodyStr, config.HTTP.SkipJSONPaths[i], "useless")
 			}
 
-			mainResBody = []byte(srcBodyStr)
-			testResBody = []byte(testBodyStr)
+			if skipErr != nil {
+				// Do not crash the worker; keep the original bodies and
+				// fall through to storing the mismatch.
+				logging.L.Error("error in applying skip_json_paths", j.loggingFieldsWithError(skipErr)...)
+			} else {
+				mainResBody = []byte(srcBodyStr)
+				testResBody = []byte(testBodyStr)
 
-			equalBody, err = JSONBytesEqual(mainResBody, testResBody)
-			if err != nil {
-				logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
-				return
+				equalBody, err = JSONBytesEqual(mainResBody, testResBody)
+				if err != nil {
+					logging.L.Error("error in JSON equality check of body request", j.loggingFieldsWithError(err)...)
+					return
+				}
 			}
 		}
 	}
