@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -97,6 +99,36 @@ func LoadHTTP(path string) *HTTPConfig {
 		logging.L.Fatal("error in unmarshalling the config file", zap.Error(err))
 	}
 
+	if err := c.Validate(); err != nil {
+		logging.L.Fatal("invalid config", zap.Error(err))
+	}
+
 	HTTP = &c
 	return &c
+}
+
+// Validate checks the config for invalid values.
+func (c *HTTPConfig) Validate() error {
+	var errs []error
+	if c.TestProbability > 100 {
+		errs = append(errs, fmt.Errorf("test_probability must be between 0 and 100, got %d", c.TestProbability))
+	}
+	if c.Worker.Count == 0 {
+		errs = append(errs, errors.New("worker.count must be greater than 0"))
+	}
+	if c.Worker.QueueSize == 0 {
+		errs = append(errs, errors.New("worker.queue_size must be greater than 0"))
+	}
+	if c.Upstreams.Main.Address == "" {
+		errs = append(errs, errors.New("upstreams.main.address must not be empty"))
+	}
+	if c.Upstreams.Test.Address == "" {
+		errs = append(errs, errors.New("upstreams.test.address must not be empty"))
+	}
+	switch c.StorageType {
+	case "stdout", "elasticsearch":
+	default:
+		errs = append(errs, fmt.Errorf("storage_type must be \"stdout\" or \"elasticsearch\", got %q", c.StorageType))
+	}
+	return errors.Join(errs...)
 }
