@@ -157,13 +157,13 @@ func TestProxyEndToEnd(t *testing.T) {
 	}
 	defer test.stop()
 
-	mainBackend, err := newStandaloneBackend(main.addr)
+	mainBackend, err := newStandaloneBackend(main.addr, "")
 	if err != nil {
 		t.Fatalf("main upstream backend: %v", err)
 	}
 	defer mainBackend.close()
 
-	testBackend, err := newStandaloneBackend(test.addr)
+	testBackend, err := newStandaloneBackend(test.addr, "")
 	if err != nil {
 		t.Fatalf("test upstream backend: %v", err)
 	}
@@ -286,13 +286,13 @@ func TestProxyClusterRouting(t *testing.T) {
 	defer test.stop()
 
 	// Build the cluster backend against the seed.
-	cluster, err := newClusterBackend([]string{seed.addr})
+	cluster, err := newClusterBackend([]string{seed.addr}, "")
 	if err != nil {
 		t.Fatalf("newClusterBackend: %v", err)
 	}
 	defer cluster.close()
 
-	testBackend, err := newStandaloneBackend(test.addr)
+	testBackend, err := newStandaloneBackend(test.addr, "")
 	if err != nil {
 		t.Fatalf("test backend: %v", err)
 	}

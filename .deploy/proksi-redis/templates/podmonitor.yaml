@@ -1,0 +1,16 @@
+{{ if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "proksi.serviceAccountName" . }}
+  labels:
+    {{- include "proksi.labels" . | nindent 4 }}
+spec:
+  podMetricsEndpoints:
+    - interval: {{ .Values.metrics.podMonitor.interval | quote }}
+      path: /metrics
+      port: metrics
+  selector:
+    matchLabels:
+      {{- include "proksi.selectorLabels" . | nindent 6 }}
+{{- end }}
