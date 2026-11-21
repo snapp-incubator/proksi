@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -11,27 +10,6 @@ import (
 
 	"github.com/snapp-incubator/proksi/internal/logging"
 )
-
-func recordMetrics() {
-	go func() {
-		for {
-			opsProcessed.Inc()
-			time.Sleep(2 * time.Second)
-		}
-	}()
-}
-
-var (
-	opsProcessed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "myapp_processed_ops_total",
-		Help: "The total number of processed events",
-	})
-)
-
-func main() {
-	recordMetrics()
-
-}
 
 var buckets = []float64{
 	0.0005,
