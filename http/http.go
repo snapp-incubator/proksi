@@ -74,7 +74,10 @@ func main() {
 		return
 	}
 
-	c := config.LoadHTTP(configPath)
+	c, err := config.LoadHTTP(configPath)
+	if err != nil {
+		logging.L.Fatal("failed to load config", zap.Error(err))
+	}
 
 	// Initialize logging with configured level
 	if err := logging.InitializeLogger(c.LogLevel); err != nil {
