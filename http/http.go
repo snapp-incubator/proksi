@@ -3,17 +3,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,6 +37,22 @@ var (
 
 	strg storage.Storage
 )
+
+const (
+	// requestIDHeader is the header used to propagate the request ID.
+	requestIDHeader = "X-Request-Id"
+	// shutdownTimeout bounds both the HTTP server drain and the worker drain.
+	shutdownTimeout = 30 * time.Second
+)
+
+// newRequestID generates a random 128-bit hex request ID.
+func newRequestID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(b)
+}
 
 var (
 	help       bool   // Indicates whether to show the help or not
@@ -96,8 +117,11 @@ func main() {
 
 	jobs := make(chan Job, c.Worker.QueueSize)
 
+	var workers sync.WaitGroup
 	for i := uint(0); i < c.Worker.Count; i++ {
+		workers.Add(1)
 		go func() {
+			defer workers.Done()
 			for job := range jobs {
 				job.Do()
 			}
@@ -113,14 +137,15 @@ func main() {
 		Handler: mux,
 	}
 
+	serveErr := make(chan error, 1)
 	go func() {
 		logging.L.Info("Starting HTTP server",
 			zap.String("address", c.Bind),
 			zap.String("main_upstream", c.Upstreams.Main.Address),
 			zap.String("test_upstream", c.Upstreams.Test.Address),
 		)
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("HTTP server ListenAndServe Error: %v", err)
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
 		}
 	}()
 
@@ -128,13 +153,39 @@ func main() {
 		go metrics.InitializeHTTP(c.Metrics.Bind)
 	}
 
-	sigint := make(chan os.Signal, 1)
-	signal.Notify(sigint, os.Interrupt)
-	<-sigint
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	logging.L.Debug("Closing HTTP connections")
-	if err := srv.Shutdown(context.Background()); err != nil {
+	select {
+	case err := <-serveErr:
+		logging.L.Fatal("HTTP server ListenAndServe error", zap.Error(err))
+	case <-ctx.Done():
+		stop()
+	}
+
+	logging.L.Info("Shutting down: no longer accepting requests", zap.Duration("timeout", shutdownTimeout))
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		// In-flight handlers may still enqueue jobs, so the queue must not be closed.
 		logging.L.Error("Error in shutting down the HTTP server", zap.Error(err))
+		return
+	}
+
+	// All handlers have returned, so nothing sends on jobs anymore.
+	close(jobs)
+	drained := make(chan struct{})
+	go func() {
+		workers.Wait()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		logging.L.Info("Job queue drained")
+	case <-shutdownCtx.Done():
+		logging.L.Error("Timed out waiting for workers to drain the job queue")
 	}
 
 	logging.L.Info("HTTP server is shut down")
@@ -146,8 +197,16 @@ type server struct {
 }
 
 func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
+	requestID := req.Header.Get(requestIDHeader)
+	if requestID == "" {
+		requestID = newRequestID()
+		req.Header.Set(requestIDHeader, requestID)
+	}
+	writer.Header().Set(requestIDHeader, requestID)
+
 	loggingFieldsWithError := func(err error) []zap.Field {
 		return []zap.Field{
+			zap.String("request_id", requestID),
 			zap.String("method", req.Method),
 			zap.String("url", req.URL.String()),
 			zap.Error(err),
@@ -156,6 +215,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 
 	loggingFields := func(mainStatusCode, testStatusCode int) []zap.Field {
 		return []zap.Field{
+			zap.String("request_id", requestID),
 			zap.String("method", req.Method),
 			zap.String("url", req.URL.String()),
 			zap.Int("main_service_status_code", mainStatusCode),
@@ -218,6 +278,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	if inBucket {
 		s.job <- &upstreamTestJob{
 			req:                    req,
+			requestID:              requestID,
 			reqBodyReader:          reqBodyReader,
 			loggingFieldsWithError: loggingFieldsWithError,
 			loggingFields:          loggingFields,
@@ -235,6 +296,7 @@ type Job interface {
 
 type upstreamTestJob struct {
 	req           *http.Request
+	requestID     string
 	reqBodyReader *bytes.Reader
 
 	loggingFieldsWithError func(err error) []zap.Field
@@ -292,6 +354,7 @@ func (j *upstreamTestJob) Do() {
 	if testRes.StatusCode != j.mainRes.StatusCode {
 		logging.L.Warn("Different status code from services", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 		err = strg.Store(storage.Log{
+			RequestID:              j.requestID,
 			URL:                    j.req.URL.String(),
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
@@ -310,6 +373,7 @@ func (j *upstreamTestJob) Do() {
 			logging.L.Warn("NOT equal content-type to compare",
 				j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 			err = strg.Store(storage.Log{
+				RequestID:              j.requestID,
 				URL:                    j.req.URL.String(),
 				Headers:                j.req.Header,
 				MainUpstreamStatusCode: j.mainRes.StatusCode,
@@ -379,6 +443,7 @@ func (j *upstreamTestJob) Do() {
 	} else {
 		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 		l := storage.Log{
+			RequestID:              j.requestID,
 			URL:                    j.req.URL.String(),
 			Headers:                j.req.Header,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
