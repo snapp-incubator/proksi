@@ -26,7 +26,10 @@ func (s ElasticStorage) Store(l Log) error {
 	}
 
 	res, err := r.Do(context.Background(), s.ES)
-	defer func() { _ = res.Body.Close() }()
+	if err != nil {
+		return err
+	}
+	_ = res.Body.Close()
 
-	return err
+	return nil
 }
