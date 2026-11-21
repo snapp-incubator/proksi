@@ -2,6 +2,7 @@ package storage
 
 // Log defines the structure of records storing in Storage as log of requests
 type Log struct {
+	RequestID                   string              `json:"request_id"`
 	URL                         string              `json:"url"`
 	Headers                     map[string][]string `json:"headers"`
 	MainUpstreamStatusCode      int                 `json:"main_upstream_status_code"`
