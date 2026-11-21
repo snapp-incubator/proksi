@@ -19,6 +19,7 @@ upstreams:
   # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
   # request will be the main upstream response
   main:
+    # A path prefix is allowed (e.g. "http://host:8080/base"); trailing slashes are trimmed.
     address: "http://localhost:8080"
     # Timeouts are Go durations (e.g. "500ms", "10s"); 0 disables a limit.
     timeout: 30s                 # Total time limit of a request, including reading the response body

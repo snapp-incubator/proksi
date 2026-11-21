@@ -1364,3 +1364,13 @@ func TestValidateNegativeTimeouts(t *testing.T) {
 		t.Errorf("zero timeout disables the limit and must be valid: %v", err)
 	}
 }
+
+func TestFinalizeTrimsUpstreamTrailingSlash(t *testing.T) {
+	c := DefaultHTTP()
+	c.Upstreams.Main.Address = "http://main:8080/"
+	c.Upstreams.Test.Address = "http://test:8081/base//"
+	c.Finalize()
+	if c.Upstreams.Main.Address != "http://main:8080" || c.Upstreams.Test.Address != "http://test:8081/base" {
+		t.Fatalf("addresses not normalised: %q %q", c.Upstreams.Main.Address, c.Upstreams.Test.Address)
+	}
+}

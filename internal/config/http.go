@@ -210,9 +210,13 @@ func DefaultHTTP() HTTPConfig {
 	return c
 }
 
-// Finalize applies the legacy-field migration and installs the pre-computed
+// Finalize trims trailing slashes from the upstream addresses, applies the legacy-field migration and installs the pre-computed
 // route configs used at runtime. LoadHTTP calls it after validation.
 func (c *HTTPConfig) Finalize() {
+	// Request URLs always start with "/", so a trailing slash on an upstream address
+	// would produce "//". A base path prefix (http://host/base) is preserved.
+	c.Upstreams.Main.Address = strings.TrimRight(c.Upstreams.Main.Address, "/")
+	c.Upstreams.Test.Address = strings.TrimRight(c.Upstreams.Test.Address, "/")
 	c.migrateFromLegacyConfig()
 	ComputedConfigs = c.PrecomputeRouteConfigs()
 }
