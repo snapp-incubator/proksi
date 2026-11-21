@@ -48,6 +48,25 @@ var (
 	}, []string{"method", "upstream"})
 )
 
+// HTTPMismatchCounter counts responses that differ between main and test
+// upstreams. The type label is one of "status_code", "content_type" or "body".
+var HTTPMismatchCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "proksi",
+	Subsystem: "http",
+	Name:      "mismatch_count",
+	Help:      "Number of main/test response mismatches by type",
+}, []string{"type"})
+
+// RegisterQueueDepth exposes the number of pending test jobs as a gauge.
+func RegisterQueueDepth(depth func() float64) {
+	promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "proksi",
+		Subsystem: "http",
+		Name:      "queue_depth",
+		Help:      "Number of mirror jobs waiting in the worker queue",
+	}, depth)
+}
+
 // InitializeHTTP initialize the metrics
 func InitializeHTTP(bind string) {
 	mux := http.NewServeMux()
