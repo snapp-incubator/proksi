@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -177,4 +178,33 @@ func TestProbabilityGating(t *testing.T) {
 			t.Fatalf("mirrored %d of %d, want about half", got, n)
 		}
 	})
+}
+
+// Runs under -race: concurrent requests must not race on the probability counter,
+// and exactly half of 100 requests fall in a 50% bucket.
+func TestE2EConcurrentProbabilityGate(t *testing.T) {
+	var testHits atomic.Int64
+	h := newHarness(t, respond(200, "text/plain", "ok"),
+		func(w http.ResponseWriter, _ *http.Request) { testHits.Add(1); _, _ = io.WriteString(w, "ok") },
+		func(c *config.HTTPConfig) { c.TestProbability = 50 })
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := http.Get(h.proxy.URL + "/")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_, _ = io.Copy(io.Discard, res.Body)
+			_ = res.Body.Close()
+		}()
+	}
+	wg.Wait()
+	h.drain()
+	if got := testHits.Load(); got != 50 {
+		t.Fatalf("test upstream hits = %d, want 50", got)
+	}
 }

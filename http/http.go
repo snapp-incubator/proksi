@@ -274,6 +274,8 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 
 	var mainResBodyBuffer bytes.Buffer
 	_, err = io.Copy(&mainResBodyBuffer, mainRes.Body)
+	// The body is fully buffered; release the connection even when not mirrored (#79).
+	_ = mainRes.Body.Close()
 	if err != nil {
 		logging.L.Error("error in copying the main upstream response into the byte buffer", loggingFieldsWithError(err)...)
 		return
@@ -297,8 +299,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	atomic.AddUint64(&s.reqCounter, 1)
-	inBucket := s.reqCounter%100 < routeConfig.TestProbability
+	inBucket := atomic.AddUint64(&s.reqCounter, 1)%100 < routeConfig.TestProbability
 	if inBucket {
 		s.job <- &upstreamTestJob{
 			req:                    req,
