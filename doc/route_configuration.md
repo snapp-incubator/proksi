@@ -140,6 +140,8 @@ These settings apply to all routes unless overridden by specific route configura
 
 Each route pattern can override any of the global configuration options.
 
+`test_probability` is optional per route: when it is omitted the route inherits `global_config.test_probability`, while an explicit `test_probability: 0` disables mirroring for that route (the request is only sent to the main upstream). Values must be between 0 and 100. In Helm values, use `testProbability: 0` the same way; the key is rendered whenever it is present, including `0`.
+
 ### Skip Routes (`skip_routes`)
 
 Routes listed here will bypass the test upstream entirely - no comparison or storage occurs.

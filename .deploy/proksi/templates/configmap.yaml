@@ -117,7 +117,7 @@ data:
           - {{ . }}
           {{- end }}
         {{- end }}
-        {{- if $config.testProbability }}
+        {{- if hasKey $config "testProbability" }}
         test_probability: {{ $config.testProbability }}
         {{- end }}
       {{- end }}

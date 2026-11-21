@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -28,14 +29,14 @@ var (
 
 var defaultHTTP = HTTPConfig{
 	Bind:     "0.0.0.0:9090",
-	LogLevel: "warn",
+	LogLevel: "info",
 	Metrics: metric{
 		Enabled: true,
 		Bind:    "0.0.0.0:9001",
 	},
 	StorageType: "stdout",
 	Elasticsearch: Elasticsearch{
-		Addresses:              []string{"::9200"},
+		Addresses:              []string{},
 		Username:               "",
 		Password:               "",
 		CloudID:                "",
@@ -47,8 +48,8 @@ var defaultHTTP = HTTPConfig{
 		Main HTTPUpstream `koanf:"main"`
 		Test HTTPUpstream `koanf:"test"`
 	}{
-		Main: defaultUpstream("127.0.0.1:8080"),
-		Test: defaultUpstream("127.0.0.1:8081"),
+		Main: defaultUpstream("http://127.0.0.1:8080"),
+		Test: defaultUpstream("http://127.0.0.1:8081"),
 	},
 	Worker: worker{
 		Count:     50,
@@ -132,7 +133,7 @@ type RouteConfig struct {
 	StoreReqBody    string   `koanf:"store_req_body"`    // Store request body on differences ("" = inherit, "enable"/"disable" = override)
 	StoreRespBodies string   `koanf:"store_resp_bodies"` // Store response bodies on differences ("" = inherit, "enable"/"disable" = override)
 	SkipJSONPaths   []string `koanf:"skip_json_paths"`   // Route-specific JSON paths to skip
-	TestProbability uint64   `koanf:"test_probability"`  // Override global test probability for this route (0 = inherit)
+	TestProbability *uint64  `koanf:"test_probability"`  // Override global test probability for this route (nil/absent = inherit, 0 = never mirror this route)
 }
 
 // GlobalConfig represents global default configuration
@@ -169,37 +170,36 @@ type ComputedRouteConfigs struct {
 	SkipRoutes map[string]bool
 }
 
-// LoadHTTP function will load the file located in path and return the parsed config for ProksiHTTP. This function will panic on errors
-func LoadHTTP(path string) *HTTPConfig {
+// LoadHTTP loads the file located at path and returns the parsed, validated config for
+// Proksi HTTP. It installs the result as the package-level HTTP (and ComputedConfigs)
+// only on success; on failure it returns an error and leaves them untouched.
+func LoadHTTP(path string) (*HTTPConfig, error) {
 	// Create a fresh koanf instance for each load to avoid state pollution
 	localK := koanf.New(".")
 
-	// LoadHTTP default config in the beginning
-	err := localK.Load(structs.Provider(defaultHTTP, "koanf"), nil)
-	if err != nil {
-		logging.L.Fatal("error in loading the default config", zap.Error(err))
+	// Load default config in the beginning
+	if err := localK.Load(structs.Provider(defaultHTTP, "koanf"), nil); err != nil {
+		return nil, fmt.Errorf("loading the default config: %w", err)
 	}
 
-	// LoadHTTP YAML config and merge into the previously loaded config.
-	err = localK.Load(file.Provider(path), yaml.Parser())
-	if err != nil {
-		logging.L.Fatal("error in loading the config file", zap.Error(err))
+	// Load YAML config and merge into the previously loaded config.
+	if err := localK.Load(file.Provider(path), yaml.Parser()); err != nil {
+		return nil, fmt.Errorf("loading the config file %q: %w", path, err)
 	}
 
 	var c HTTPConfig
-	err = localK.Unmarshal("", &c)
-	if err != nil {
-		logging.L.Fatal("error in unmarshalling the config file", zap.Error(err))
+	if err := localK.Unmarshal("", &c); err != nil {
+		return nil, fmt.Errorf("unmarshalling the config file %q: %w", path, err)
 	}
 
 	if err := c.Validate(); err != nil {
-		logging.L.Fatal("invalid config", zap.Error(err))
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	c.Finalize()
 
 	HTTP = &c
-	return &c
+	return &c, nil
 }
 
 // DefaultHTTP returns a copy of the default config. Tests and tools that build a
@@ -229,27 +229,86 @@ func (c *HTTPConfig) Validate() error {
 	if c.Worker.QueueSize == 0 {
 		errs = append(errs, errors.New("worker.queue_size must be greater than 0"))
 	}
-	if c.Upstreams.Main.Address == "" {
-		errs = append(errs, errors.New("upstreams.main.address must not be empty"))
-	}
-	if c.Upstreams.Test.Address == "" {
-		errs = append(errs, errors.New("upstreams.test.address must not be empty"))
+	errs = append(errs, validateUpstream("upstreams.main", c.Upstreams.Main)...)
+	errs = append(errs, validateUpstream("upstreams.test", c.Upstreams.Test)...)
+	if err := logging.ValidateLogLevel(c.LogLevel); err != nil {
+		errs = append(errs, fmt.Errorf("log_level: %w", err))
 	}
 	switch c.StorageType {
 	case "stdout", "elasticsearch":
 	default:
 		errs = append(errs, fmt.Errorf("storage_type must be \"stdout\" or \"elasticsearch\", got %q", c.StorageType))
 	}
+	if c.StorageType == "elasticsearch" {
+		errs = append(errs, c.Elasticsearch.validate()...)
+	}
 	if c.GlobalConfig.TestProbability > 100 {
 		errs = append(errs, fmt.Errorf("global_config.test_probability must be between 0 and 100, got %d", c.GlobalConfig.TestProbability))
 	}
 	for route, rc := range c.RouteConfigs {
-		if rc.TestProbability > 100 {
-			errs = append(errs, fmt.Errorf("route_configs[%q].test_probability must be between 0 and 100, got %d", route, rc.TestProbability))
+		if rc.TestProbability != nil && *rc.TestProbability > 100 {
+			errs = append(errs, fmt.Errorf("route_configs[%q].test_probability must be between 0 and 100, got %d", route, *rc.TestProbability))
 		}
 	}
 	errs = append(errs, c.validateRoutePatterns()...)
 	return errors.Join(errs...)
+}
+
+// validateHTTPURL checks that raw is an absolute http or https URL with a host.
+func validateHTTPURL(raw string) error {
+	if raw == "" {
+		return errors.New("must not be empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL %q must use the http or https scheme", raw)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("URL %q must have a host", raw)
+	}
+	return nil
+}
+
+// validateUpstream checks the address and the timeouts of one upstream.
+func validateUpstream(name string, u HTTPUpstream) []error {
+	var errs []error
+	if err := validateHTTPURL(u.Address); err != nil {
+		errs = append(errs, fmt.Errorf("%s.address: %w", name, err))
+	}
+	for field, d := range map[string]time.Duration{
+		"timeout":                 u.Timeout,
+		"dial_timeout":            u.DialTimeout,
+		"tls_handshake_timeout":   u.TLSHandshakeTimeout,
+		"response_header_timeout": u.ResponseHeaderTimeout,
+	} {
+		if d < 0 {
+			errs = append(errs, fmt.Errorf("%s.%s must not be negative, got %s", name, field, d))
+		}
+	}
+	return errs
+}
+
+// validate checks the Elasticsearch settings; it is called only when it is the storage backend.
+func (e Elasticsearch) validate() []error {
+	var errs []error
+	switch {
+	case e.CloudID != "" && len(e.Addresses) > 0:
+		errs = append(errs, errors.New("elasticsearch.cloud_id and elasticsearch.addresses are mutually exclusive"))
+	case e.CloudID == "" && len(e.Addresses) == 0:
+		errs = append(errs, errors.New("elasticsearch.addresses (or elasticsearch.cloud_id) must be set when storage_type is elasticsearch"))
+	}
+	for i, addr := range e.Addresses {
+		if err := validateHTTPURL(addr); err != nil {
+			errs = append(errs, fmt.Errorf("elasticsearch.addresses[%d]: %w", i, err))
+		}
+	}
+	if e.Password != "" && e.Username == "" {
+		errs = append(errs, errors.New("elasticsearch.password requires elasticsearch.username"))
+	}
+	return errs
 }
 
 // migrateFromLegacyConfig migrates legacy configuration fields to new GlobalConfig structure
@@ -518,8 +577,9 @@ func (c *HTTPConfig) PrecomputeRouteConfigs() *ComputedRouteConfigs {
 		if len(routeConfig.SkipJSONPaths) > 0 {
 			mergedConfig.SkipJSONPaths = append(mergedConfig.SkipJSONPaths, routeConfig.SkipJSONPaths...)
 		}
-		if routeConfig.TestProbability > 0 {
-			mergedConfig.TestProbability = routeConfig.TestProbability
+		// A nil pointer means inherit; an explicit 0 disables mirroring for the route.
+		if routeConfig.TestProbability != nil {
+			mergedConfig.TestProbability = *routeConfig.TestProbability
 		}
 
 		// Store the pre-computed config

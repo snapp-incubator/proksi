@@ -47,10 +47,11 @@ func TestRouteSkippedIsServedButNotMirrored(t *testing.T) {
 
 func TestRouteProbabilityOverride(t *testing.T) {
 	var testHits int64
+	hundred := uint64(100)
 	testH := func(w http.ResponseWriter, r *http.Request) { atomic.AddInt64(&testHits, 1) }
 	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {}, testH, func(c *config.HTTPConfig) {
-		c.TestProbability = 0                                                      // mirror nothing globally...
-		c.RouteConfigs["GET:/mirrored"] = config.RouteConfig{TestProbability: 100} // ...except this route
+		c.TestProbability = 0                                                           // mirror nothing globally...
+		c.RouteConfigs["GET:/mirrored"] = config.RouteConfig{TestProbability: &hundred} // ...except this route
 	})
 	for i := 0; i < 20; i++ {
 		doGet(t, h.proxy.URL+"/mirrored")

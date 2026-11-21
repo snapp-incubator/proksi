@@ -87,7 +87,7 @@ affinity: {}
 # Configs
 # Log level for application logging
 # Options: debug, info, warn, error, fatal
-logLevel: "warn"
+logLevel: "info"
 
 # Storage backend type: "elasticsearch" or "stdout"
 # Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
@@ -164,7 +164,9 @@ routeConfigs:
     storeReqBody: enable
     storeRespBodies: enable
     testProbability: 100
-  # Example route configurations:
+  # Example route configurations (testProbability: 0 stops mirroring of that route; omit it to inherit the global value):
+  # "GET:/internal/v1/ping":
+  #   testProbability: 0
   # "POST:/api/v1/users":
   #   compareHeaders: false
   #   storeReqBody: true

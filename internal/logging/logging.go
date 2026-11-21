@@ -56,3 +56,11 @@ func parseLogLevel(logLevel string) (zapcore.Level, error) {
 		return zapcore.InfoLevel, fmt.Errorf("supported levels are: debug, info, warn, error, fatal")
 	}
 }
+
+// ValidateLogLevel returns an error if logLevel is not a supported level name.
+func ValidateLogLevel(logLevel string) error {
+	if _, err := parseLogLevel(logLevel); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", logLevel, err)
+	}
+	return nil
+}

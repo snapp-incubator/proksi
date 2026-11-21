@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,7 +71,7 @@ route_configs:
 						SkipHeaders:     []string{"Authorization"},
 						StoreReqBody:    "", // Not specified in YAML, gets empty string for inheritance
 						StoreRespBodies: "", // Not specified in YAML, gets empty string for inheritance
-						TestProbability: 75,
+						TestProbability: u64(75),
 					},
 				},
 			},
@@ -93,7 +94,7 @@ route_configs:
 						SkipHeaders:     []string{"X-Request-ID"},
 						StoreReqBody:    "",        // Not specified, gets "" (inherit)
 						StoreRespBodies: "disable", // Explicitly set to disable
-						TestProbability: 50,
+						TestProbability: u64(50),
 					},
 				},
 			},
@@ -123,7 +124,10 @@ route_configs:
 			}
 
 			// Load the configuration
-			config := LoadHTTP(tmpFile.Name())
+			config, err := LoadHTTP(tmpFile.Name())
+			if err != nil {
+				t.Fatalf("LoadHTTP: %v", err)
+			}
 
 			// Check each route config
 			for routePattern, expectedRouteConfig := range tt.expectedConfig.RouteConfigs {
@@ -157,7 +161,7 @@ route_configs:
 						expectedRouteConfig.SkipHeaders, actualRouteConfig.SkipHeaders)
 				}
 
-				if actualRouteConfig.TestProbability != expectedRouteConfig.TestProbability {
+				if !reflect.DeepEqual(actualRouteConfig.TestProbability, expectedRouteConfig.TestProbability) {
 					t.Errorf("TestProbability: expected %v, got %v",
 						expectedRouteConfig.TestProbability, actualRouteConfig.TestProbability)
 				}
@@ -223,21 +227,21 @@ route_configs:
 					StoreReqBody:    "enable",  // Explicitly set to enable
 					StoreRespBodies: "",        // Not specified, should inherit
 					SkipHeaders:     []string{"Authorization"},
-					TestProbability: 75,
+					TestProbability: u64(75),
 				},
 				"GET:/api/orders/*/items": {
 					CompareHeaders:  "",        // Not specified, should inherit
 					StoreReqBody:    "",        // Not specified, should inherit
 					StoreRespBodies: "disable", // Explicitly set to disable
 					SkipJSONPaths:   []string{"internal_id"},
-					TestProbability: 50,
+					TestProbability: u64(50),
 				},
 				"PUT:/api/products/*": {
 					CompareHeaders:  "", // Not specified, should inherit
 					StoreReqBody:    "", // Not specified, should inherit
 					StoreRespBodies: "", // Not specified, should inherit
 					SkipHeaders:     []string{"X-Version"},
-					TestProbability: 0, // Not specified, should be 0 (inherit via test_probability logic)
+					TestProbability: nil, // Not specified, should be 0 (inherit via test_probability logic)
 				},
 			},
 			description: "Complete config should correctly parse global and route-specific settings",
@@ -246,6 +250,8 @@ route_configs:
 			name: "Minimal configuration with inheritance",
 			defaultConfig: `
 storage_type: "elasticsearch"
+elasticsearch:
+  addresses: ["http://localhost:9200"]
 
 global_config:
   compare_headers: false
@@ -271,13 +277,13 @@ route_configs:
 					CompareHeaders:  "enable", // Override global false
 					StoreReqBody:    "",       // Inherit global true
 					StoreRespBodies: "",       // Inherit global
-					TestProbability: 100,      // Override global 50
+					TestProbability: u64(100), // Override global 50
 				},
 				"GET:/api/cache/*": {
 					CompareHeaders:  "",        // Inherit global false
 					StoreReqBody:    "disable", // Override global true
 					StoreRespBodies: "",        // Inherit global
-					TestProbability: 0,         // Not specified
+					TestProbability: nil,       // Not specified
 				},
 			},
 			description: "Should correctly inherit global settings when route fields not specified",
@@ -315,7 +321,7 @@ route_configs:
 					CompareHeaders:  "disable", // Override global
 					StoreReqBody:    "enable",  // Not in global, explicitly set
 					StoreRespBodies: "",        // Inherit global true
-					TestProbability: 0,         // Not specified
+					TestProbability: nil,       // Not specified
 				},
 				"POST:/api/v1/shops/*/orders/*": {
 					CompareHeaders:  "",        // Inherit global true
@@ -323,13 +329,13 @@ route_configs:
 					StoreRespBodies: "disable", // Override global true
 					SkipHeaders:     []string{"X-Shop-ID", "Authorization"},
 					SkipJSONPaths:   []string{"internal.shop_id", "payment.token"},
-					TestProbability: 0, // Not specified
+					TestProbability: nil, // Not specified
 				},
 				"DELETE:/api/v1/orders/*/items/*": {
-					CompareHeaders:  "", // Inherit global true
-					StoreReqBody:    "", // Inherit global default (false)
-					StoreRespBodies: "", // Inherit global true
-					TestProbability: 25, // Override global 100
+					CompareHeaders:  "",      // Inherit global true
+					StoreReqBody:    "",      // Inherit global default (false)
+					StoreRespBodies: "",      // Inherit global true
+					TestProbability: u64(25), // Override global 100
 				},
 			},
 			description: "Route parameters patterns should work with pointer-based inheritance",
@@ -358,7 +364,10 @@ route_configs:
 			}
 
 			// Load the configuration
-			config := LoadHTTP(tmpFile.Name())
+			config, err := LoadHTTP(tmpFile.Name())
+			if err != nil {
+				t.Fatalf("LoadHTTP: %v", err)
+			}
 
 			// Verify global config
 			if config.GlobalConfig.CompareHeaders != tt.expectedGlobal.CompareHeaders {
@@ -405,7 +414,7 @@ route_configs:
 					t.Errorf("%s SkipJSONPaths: expected %v, got %v",
 						routePattern, expectedRouteConfig.SkipJSONPaths, actualRouteConfig.SkipJSONPaths)
 				}
-				if actualRouteConfig.TestProbability != expectedRouteConfig.TestProbability {
+				if !reflect.DeepEqual(actualRouteConfig.TestProbability, expectedRouteConfig.TestProbability) {
 					t.Errorf("%s TestProbability: expected %v, got %v",
 						routePattern, expectedRouteConfig.TestProbability, actualRouteConfig.TestProbability)
 				}
@@ -789,7 +798,7 @@ func TestHTTPConfig_PrecomputeRouteConfigs(t *testing.T) {
 				StoreReqBody:    "enable",
 				StoreRespBodies: "enable",
 				SkipJSONPaths:   []string{"password"},
-				TestProbability: 75,
+				TestProbability: u64(75),
 			},
 			"GET:/api/orders/*": {
 				CompareHeaders:  "", // Inherit from global
@@ -797,7 +806,7 @@ func TestHTTPConfig_PrecomputeRouteConfigs(t *testing.T) {
 				StoreReqBody:    "", // Inherit from global
 				StoreRespBodies: "", // Inherit from global
 				SkipJSONPaths:   []string{"internal_id"},
-				TestProbability: 50,
+				TestProbability: u64(50),
 			},
 		},
 	}
@@ -1112,7 +1121,7 @@ compare_headers: false
 metrics:
   enabled: false
 elasticsearch:
-  addresses: ["es:9200"]
+  addresses: ["http://es:9200"]
   username: u
 `,
 			check: func(t *testing.T, c *HTTPConfig) {
@@ -1132,7 +1141,7 @@ elasticsearch:
 				if c.Metrics.Bind != "0.0.0.0:9001" {
 					t.Fatalf("metrics bind default lost: %q", c.Metrics.Bind)
 				}
-				if !reflect.DeepEqual(c.Elasticsearch.Addresses, []string{"es:9200"}) || c.Elasticsearch.Username != "u" {
+				if !reflect.DeepEqual(c.Elasticsearch.Addresses, []string{"http://es:9200"}) || c.Elasticsearch.Username != "u" {
 					t.Fatalf("elasticsearch: %+v", c.Elasticsearch)
 				}
 			},
@@ -1140,7 +1149,10 @@ elasticsearch:
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := LoadHTTP(writeConfig(t, tt.yaml))
+			c, err := LoadHTTP(writeConfig(t, tt.yaml))
+			if err != nil {
+				t.Fatalf("LoadHTTP: %v", err)
+			}
 			if HTTP != c {
 				t.Fatal("global HTTP not set to returned config")
 			}
@@ -1150,7 +1162,10 @@ elasticsearch:
 }
 
 func TestLoadHTTPExampleConfig(t *testing.T) {
-	c := LoadHTTP(filepath.Join("..", "..", "http", "config.example.yaml"))
+	c, err := LoadHTTP(filepath.Join("..", "..", "http", "config.example.yaml"))
+	if err != nil {
+		t.Fatalf("LoadHTTP: %v", err)
+	}
 	if c.Upstreams.Main.Address == "" || c.Upstreams.Test.Address == "" || c.TestProbability != 100 {
 		t.Fatalf("example config parsed wrong: %+v", c)
 	}
@@ -1194,7 +1209,10 @@ func TestLoadHTTPTimeouts(t *testing.T) {
 	if err := os.WriteFile(p, []byte("upstreams:\n  main:\n    address: http://m\n    timeout: 2s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c := LoadHTTP(p)
+	c, err := LoadHTTP(p)
+	if err != nil {
+		t.Fatalf("LoadHTTP: %v", err)
+	}
 	if c.Upstreams.Main.Timeout != 2*time.Second {
 		t.Errorf("main timeout = %v", c.Upstreams.Main.Timeout)
 	}
@@ -1217,14 +1235,132 @@ func TestMatchRouteSegmentBoundary(t *testing.T) {
 
 func TestGetRouteConfigMostSpecificWins(t *testing.T) {
 	c := &HTTPConfig{GlobalConfig: GlobalConfig{TestProbability: 100}, RouteConfigs: map[string]RouteConfig{
-		"GET:/api/*":       {TestProbability: 10},
-		"GET:/api/users/*": {TestProbability: 20},
-		"*:/api/users/*":   {TestProbability: 30},
+		"GET:/api/*":       {TestProbability: u64(10)},
+		"GET:/api/users/*": {TestProbability: u64(20)},
+		"*:/api/users/*":   {TestProbability: u64(30)},
 	}}
 	ComputedConfigs = c.PrecomputeRouteConfigs()
 	for i := 0; i < 50; i++ {
 		if got := GetRouteConfig("GET:/api/users/1").TestProbability; got != 20 {
 			t.Fatalf("iteration %d: got probability %d, want 20 (most specific)", i, got)
 		}
+	}
+}
+
+func u64(v uint64) *uint64 { return &v }
+
+func TestLoadHTTPErrors(t *testing.T) {
+	prev := HTTP
+	tests := []struct {
+		name    string
+		yaml    string
+		missing bool
+		want    string
+	}{
+		{name: "missing file", missing: true, want: "loading the config file"},
+		{name: "malformed yaml", yaml: "bind: [unterminated", want: "loading the config file"},
+		{name: "wrong type", yaml: "worker:\n  count: many\n", want: "unmarshalling"},
+		{name: "bad duration", yaml: "upstreams:\n  main:\n    timeout: soon\n", want: "unmarshalling"},
+		{name: "negative timeout", yaml: "upstreams:\n  main:\n    timeout: -1s\n", want: "upstreams.main.timeout"},
+		{name: "address without scheme", yaml: "upstreams:\n  test:\n    address: 'host:80'\n", want: "upstreams.test.address"},
+		{name: "address with ftp scheme", yaml: "upstreams:\n  test:\n    address: 'ftp://host'\n", want: "http or https"},
+		{name: "address without host", yaml: "upstreams:\n  main:\n    address: 'http://'\n", want: "must have a host"},
+		{name: "empty address", yaml: "upstreams:\n  main:\n    address: ''\n", want: "must not be empty"},
+		{name: "unknown storage", yaml: "storage_type: s3\n", want: "storage_type"},
+		{name: "unknown log level", yaml: "log_level: loud\n", want: "log_level"},
+		{name: "es without addresses", yaml: "storage_type: elasticsearch\n", want: "elasticsearch.addresses"},
+		{name: "es bad address", yaml: "storage_type: elasticsearch\nelasticsearch:\n  addresses: ['es:9200']\n", want: "elasticsearch.addresses[0]"},
+		{name: "es cloud id and addresses", yaml: "storage_type: elasticsearch\nelasticsearch:\n  cloud_id: x\n  addresses: ['http://es:9200']\n", want: "mutually exclusive"},
+		{name: "es password without username", yaml: "storage_type: elasticsearch\nelasticsearch:\n  addresses: ['http://es:9200']\n  password: p\n", want: "requires elasticsearch.username"},
+		{name: "route probability over 100", yaml: "route_configs:\n  'GET:/a':\n    test_probability: 101\n", want: "route_configs"},
+		{name: "bad route pattern", yaml: "skip_routes: ['GET:nope']\n", want: "invalid route pattern"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "missing.yaml")
+			if !tt.missing {
+				path = writeConfig(t, tt.yaml)
+			}
+			c, err := LoadHTTP(path)
+			if err == nil {
+				t.Fatalf("expected an error, got config %+v", c)
+			}
+			if c != nil {
+				t.Errorf("config should be nil on error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q does not contain %q", err, tt.want)
+			}
+			if HTTP != prev {
+				t.Error("global HTTP must not change on error")
+			}
+		})
+	}
+}
+
+func TestLoadHTTPElasticsearchValid(t *testing.T) {
+	for name, y := range map[string]string{
+		"addresses": "storage_type: elasticsearch\nelasticsearch:\n  addresses: ['https://es:9200']\n",
+		"cloud id":  "storage_type: elasticsearch\nelasticsearch:\n  cloud_id: abc\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadHTTP(writeConfig(t, y)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestLoadHTTPDefaultLogLevel(t *testing.T) {
+	c, err := LoadHTTP(writeConfig(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LogLevel != "info" {
+		t.Errorf("default log_level = %q, want info", c.LogLevel)
+	}
+}
+
+func TestRouteTestProbabilityZeroDisables(t *testing.T) {
+	c, err := LoadHTTP(writeConfig(t, `
+global_config:
+  test_probability: 40
+route_configs:
+  "GET:/off":
+    test_probability: 0
+  "GET:/inherit":
+    skip_headers: ["X"]
+  "GET:/half":
+    test_probability: 50
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for route, want := range map[string]uint64{"GET:/off": 0, "GET:/inherit": 40, "GET:/half": 50} {
+		if got := GetRouteConfig(route).TestProbability; got != want {
+			t.Errorf("%s probability = %d, want %d", route, got, want)
+		}
+	}
+	if c.RouteConfigs["GET:/off"].TestProbability == nil || c.RouteConfigs["GET:/inherit"].TestProbability != nil {
+		t.Error("explicit 0 must be non-nil and absent must be nil")
+	}
+}
+
+func TestValidateNegativeTimeouts(t *testing.T) {
+	for name, mut := range map[string]func(*HTTPConfig){
+		"dial":     func(c *HTTPConfig) { c.Upstreams.Main.DialTimeout = -time.Second },
+		"tls":      func(c *HTTPConfig) { c.Upstreams.Test.TLSHandshakeTimeout = -time.Second },
+		"response": func(c *HTTPConfig) { c.Upstreams.Test.ResponseHeaderTimeout = -time.Second },
+	} {
+		c := DefaultHTTP()
+		mut(&c)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+	c := DefaultHTTP()
+	c.Upstreams.Main.Timeout = 0
+	if err := c.Validate(); err != nil {
+		t.Errorf("zero timeout disables the limit and must be valid: %v", err)
 	}
 }

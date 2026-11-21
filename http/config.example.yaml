@@ -41,7 +41,7 @@ worker:
 
 # Elasticsearch storage config params
 elasticsearch:
-  addresses: [ "127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
+  addresses: [ "http://127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
   username: ""                    # Username for HTTP Basic Authentication.
   password: ""                    # Password for HTTP Basic Authentication.
   cloud_id: ""                    # Endpoint for the Elastic Service (https://elastic.co/cloud).
@@ -84,6 +84,7 @@ skip_routes:
 #   - "enable" to explicitly enable a feature for this route
 #   - "disable" to explicitly disable a feature for this route  
 #   - omit the field to inherit from global_config
+# test_probability is a number (0-100): omit it to inherit, 0 disables mirroring for the route
 route_configs:
   "POST:/api/v1/cities":                   # Exact route match
     compare_headers: disable               # Disable header comparison for this route
