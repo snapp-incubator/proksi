@@ -24,6 +24,7 @@ var defaultHTTP = HTTPConfig{
 		Enabled: true,
 		Bind:    "0.0.0.0:9001",
 	},
+	StorageType: "stdout",
 	Elasticsearch: Elasticsearch{
 		Addresses:              []string{"::9200"},
 		Username:               "",
@@ -44,22 +45,27 @@ var defaultHTTP = HTTPConfig{
 		Count:     50,
 		QueueSize: 2048,
 	},
-	SkipJSONPaths:   []string{},
-	TestProbability: 100,
+	SkipJSONPaths:      []string{},
+	TestProbability:    100,
+	LogResponsePayload: true,
+	CompareHeaders:     true,
 }
 
 // HTTPConfig represent config of the Proksi HTTP.
 type HTTPConfig struct {
 	Bind          string        `koanf:"bind"`
 	Metrics       metric        `koanf:"metrics"`
+	StorageType   string        `koanf:"storage_type"` // Storage backend type: "elasticsearch" or "stdout"
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
 		Main httpUpstream `koanf:"main"`
 		Test httpUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
-	Worker          worker   `koanf:"worker"`
-	SkipJSONPaths   []string `koanf:"skip_json_paths"`
-	TestProbability uint64   `koanf:"test_probability"`
+	Worker             worker   `koanf:"worker"`
+	SkipJSONPaths      []string `koanf:"skip_json_paths"`
+	TestProbability    uint64   `koanf:"test_probability"`
+	LogResponsePayload bool     `koanf:"log_response_payload"`
+	CompareHeaders     bool     `koanf:"compare_headers"`
 }
 
 type httpUpstream struct {
@@ -71,15 +77,15 @@ type worker struct {
 	QueueSize uint `koanf:"queue_size"`
 }
 
-// Load function will load the file located in path and return the parsed config. This function will panic on errors
-func Load(path string) *HTTPConfig {
-	// Load default config in the beginning
+// LoadHTTP function will load the file located in path and return the parsed config for ProksiHTTP. This function will panic on errors
+func LoadHTTP(path string) *HTTPConfig {
+	// LoadHTTP default config in the beginning
 	err := k.Load(structs.Provider(defaultHTTP, "koanf"), nil)
 	if err != nil {
 		logging.L.Fatal("error in loading the default config", zap.Error(err))
 	}
 
-	// Load YAML config and merge into the previously loaded config.
+	// LoadHTTP YAML config and merge into the previously loaded config.
 	err = k.Load(file.Provider(path), yaml.Parser())
 	if err != nil {
 		logging.L.Fatal("error in loading the config file", zap.Error(err))

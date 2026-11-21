@@ -14,6 +14,10 @@ data:
       enabled: {{ .Values.metrics.enabled }}
       bind: "0.0.0.0:{{ .Values.metrics.containerPort }}"
 
+    # Storage backend type: "elasticsearch" or "stdout"
+    # Use "stdout" to output JSON logs directly to stdout instead of Elasticsearch
+    storage_type: {{ .Values.storageType | quote }}
+
     # List of upstreams to proxy the request to them
     upstreams:
       # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
@@ -44,3 +48,9 @@ data:
     
     # Percentage of the requests that will be sent to the test upstream
     test_probability: {{ .Values.testProbability }}
+
+    # Indicates whether to log response body of main and test upstreams or not.
+    log_response_payload: {{ .Values.logResponsePayload }}
+
+    # Indicates whether to compare response headers between main and test upstreams or not.
+    compare_headers: {{ .Values.compareHeaders }}

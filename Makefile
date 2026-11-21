@@ -11,6 +11,9 @@ test:
 	go test ./...
 
 lint:
-	golint ./...
+	golangci-lint run ./...
 
-check-suite: test
+check-suite: test lint
+
+install-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
