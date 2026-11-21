@@ -99,3 +99,17 @@ values.*.yaml
 !values.yaml
 
 .history/
+
+# Build artifacts
+/proksi-http
+/proksi-redis
+
+# IDEs
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Go coverage
+coverage.*
