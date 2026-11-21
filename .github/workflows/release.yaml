@@ -48,3 +48,46 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  push-chart:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Derive chart version from the tag
+        id: version
+        run: |
+          # Tags look like v1.2.3; chart versions must be semver without the leading v.
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Tag '$TAG' is not a semantic version, cannot publish the chart" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Lint chart
+        run: helm lint .deploy/proksi
+
+      - name: Package chart
+        # appVersion is the image tag the chart deploys by default; it matches the tag
+        # the image job above publishes (the git tag, e.g. v1.2.3).
+        run: |
+          helm package .deploy/proksi \
+            --version "${{ steps.version.outputs.version }}" \
+            --app-version "${{ steps.version.outputs.tag }}"
+
+      - name: Log in to the Container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          helm push "proksi-${{ steps.version.outputs.version }}.tgz" "oci://${{ env.REGISTRY }}/${OWNER}/charts"
