@@ -38,8 +38,9 @@ Config keys (YAML, snake_case): `bind`, `metrics.{enabled,bind}`, `storage_type`
 - Each product has a long-lived integration branch: `dev/http`, `dev/redis`, `dev/sql`. These are permanent; do not delete them.
 - Feature branches are cut from the relevant `dev/<component>` and PR'd back into it, never straight into `main`. **Squash-merge** feature PRs into `dev/*`.
 - To release, merge `dev/<component>` into `main` with a **merge commit** (no squash or rebase), so `main` keeps per-release history. Tag the release on `main`.
-- Shared changes that are not logic (docs, `.gitignore`, CI, repo config) may be committed directly to `main`; then merge `main` into every `dev/*` branch. Logic changes always go through a `dev/*` branch.
-- `dev/*` must always be at or ahead of `main`: after anything lands on `main` (release, docs or hotfix), merge `main` back into every `dev/*` branch.
+- **Nothing is pushed directly to `main` or `dev/*`; everything lands through a pull request** (enforced by GitHub rulesets). Non-logic shared changes (docs, `.gitignore`, CI, repo config) may target `main` directly with a PR (merge commit); logic changes always go through a `dev/*` branch.
+- `dev/*` must always be at or ahead of `main`: after anything lands on `main` (release, docs or hotfix), open a PR from `main` into every `dev/*` branch and merge it with a **merge commit** (never squash, it would not make `main` an ancestor).
+- GitHub rulesets: `main` and `dev/*` block deletion and force-push and require a PR. `main` allows only merge commits; `dev/*` allows squash and merge. The `test` CI check (build, `go test`, golangci-lint) is required on `main` and `dev/http`; `dev/redis` and `dev/sql` will require it once their lint findings are fixed (#42, #43). Repo admins can bypass only via a PR, never a direct push. Do not enable "delete branch on merge": it would delete `dev/*` after a release PR.
 - No redis release has been cut yet, so the tag scheme for non-HTTP components is undecided.
 
 ## Rules for Claude
