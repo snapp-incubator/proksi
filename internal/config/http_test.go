@@ -1,6 +1,11 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestValidate(t *testing.T) {
 	valid := func() HTTPConfig { return defaultHTTP }
@@ -32,5 +37,19 @@ func TestValidate(t *testing.T) {
 		if err := c.Validate(); err != nil {
 			t.Errorf("probability %d should be valid: %v", p, err)
 		}
+	}
+}
+
+func TestLoadHTTPTimeouts(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("upstreams:\n  main:\n    address: http://m\n    timeout: 2s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := LoadHTTP(p)
+	if c.Upstreams.Main.Timeout != 2*time.Second {
+		t.Errorf("main timeout = %v", c.Upstreams.Main.Timeout)
+	}
+	if c.Upstreams.Main.DialTimeout != 5*time.Second || c.Upstreams.Test.Timeout != 30*time.Second {
+		t.Errorf("defaults not applied: %+v", c.Upstreams)
 	}
 }

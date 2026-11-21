@@ -97,8 +97,18 @@ elasticsearch:
 upstreams:
   main:
     url: "http://localhost:8080"
+    # Go durations (e.g. "500ms", "10s"); "0s" disables a limit.
+    timeout: 30s
+    dialTimeout: 5s
+    tlsHandshakeTimeout: 5s
+    responseHeaderTimeout: 20s
   test:
     url: "http://localhost:8081"
+    # Go durations (e.g. "500ms", "10s"); "0s" disables a limit.
+    timeout: 30s
+    dialTimeout: 5s
+    tlsHandshakeTimeout: 5s
+    responseHeaderTimeout: 20s
 
 worker:
   count: 50

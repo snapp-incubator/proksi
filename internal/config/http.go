@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -37,11 +39,11 @@ var defaultHTTP = HTTPConfig{
 		CertificateFingerprint: "",
 	},
 	Upstreams: struct {
-		Main httpUpstream `koanf:"main"`
-		Test httpUpstream `koanf:"test"`
+		Main HTTPUpstream `koanf:"main"`
+		Test HTTPUpstream `koanf:"test"`
 	}{
-		Main: httpUpstream{Address: "127.0.0.1:8080"},
-		Test: httpUpstream{Address: "127.0.0.1:8081"},
+		Main: defaultUpstream("127.0.0.1:8080"),
+		Test: defaultUpstream("127.0.0.1:8081"),
 	},
 	Worker: worker{
 		Count:     50,
@@ -60,8 +62,8 @@ type HTTPConfig struct {
 	StorageType   string        `koanf:"storage_type"` // Storage backend type: "elasticsearch" or "stdout"
 	Elasticsearch Elasticsearch `koanf:"elasticsearch"`
 	Upstreams     struct {
-		Main httpUpstream `koanf:"main"`
-		Test httpUpstream `koanf:"test"`
+		Main HTTPUpstream `koanf:"main"`
+		Test HTTPUpstream `koanf:"test"`
 	} `koanf:"upstreams"`
 	Worker             worker   `koanf:"worker"`
 	SkipJSONPaths      []string `koanf:"skip_json_paths"`
@@ -70,8 +72,23 @@ type HTTPConfig struct {
 	CompareHeaders     bool     `koanf:"compare_headers"`
 }
 
-type httpUpstream struct {
-	Address string `koanf:"address"`
+// HTTPUpstream is the config of an upstream. Zero timeouts disable the corresponding limit.
+type HTTPUpstream struct {
+	Address               string        `koanf:"address"`
+	Timeout               time.Duration `koanf:"timeout"`                 // Total time limit of a request, including reading the body
+	DialTimeout           time.Duration `koanf:"dial_timeout"`            // Time limit for establishing a TCP connection
+	TLSHandshakeTimeout   time.Duration `koanf:"tls_handshake_timeout"`   // Time limit for the TLS handshake
+	ResponseHeaderTimeout time.Duration `koanf:"response_header_timeout"` // Time limit for receiving response headers after sending the request
+}
+
+func defaultUpstream(address string) HTTPUpstream {
+	return HTTPUpstream{
+		Address:               address,
+		Timeout:               30 * time.Second,
+		DialTimeout:           5 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
+	}
 }
 
 type worker struct {
