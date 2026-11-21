@@ -95,6 +95,7 @@ func main() {
 	}
 
 	jobs := make(chan Job, c.Worker.QueueSize)
+	metrics.RegisterQueueDepth(func() float64 { return float64(len(jobs)) })
 
 	for i := uint(0); i < c.Worker.Count; i++ {
 		go func() {
@@ -290,6 +291,7 @@ func (j *upstreamTestJob) Do() {
 	defer func() { _ = testRes.Body.Close() }()
 
 	if testRes.StatusCode != j.mainRes.StatusCode {
+		metrics.HTTPMismatchCounter.WithLabelValues("status_code").Inc()
 		logging.L.Warn("Different status code from services", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 		err = strg.Store(storage.Log{
 			URL:                    j.req.URL.String(),
@@ -307,6 +309,7 @@ func (j *upstreamTestJob) Do() {
 	if config.HTTP.CompareHeaders {
 		testResContentType := testRes.Header.Get("content-type")
 		if mainResContentType != testResContentType {
+			metrics.HTTPMismatchCounter.WithLabelValues("content_type").Inc()
 			logging.L.Warn("NOT equal content-type to compare",
 				j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 			err = strg.Store(storage.Log{
@@ -375,6 +378,7 @@ func (j *upstreamTestJob) Do() {
 	if equalBody {
 		logging.L.Info("Equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 	} else {
+		metrics.HTTPMismatchCounter.WithLabelValues("body").Inc()
 		logging.L.Warn("NOT equal body response", j.loggingFields(j.mainRes.StatusCode, testRes.StatusCode)...)
 		l := storage.Log{
 			URL:                    j.req.URL.String(),
