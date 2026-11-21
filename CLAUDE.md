@@ -42,6 +42,15 @@ Config keys (YAML, snake_case): `bind`, `metrics.{enabled,bind}`, `storage_type`
 - `dev/*` must always be at or ahead of `main`: after anything lands on `main` (release, docs or hotfix), merge `main` back into every `dev/*` branch.
 - No redis release has been cut yet, so the tag scheme for non-HTTP components is undecided.
 
+## Rules for Claude
+
+- **Always work in a git worktree**, never by switching branches in the primary checkout, so several agents can work on the repo at once. Create it as a sibling of the repo (not inside it):
+  `git fetch origin && git worktree add ../proksi-worktrees/<branch> -b <branch> origin/<base>`
+  Remove it with `git worktree remove` once the branch is merged.
+- **Pick the base branch from what is being developed:** HTTP work branches from `origin/dev/http`, Redis from `origin/dev/redis`, SQL from `origin/dev/sql`, and any future component from its own `origin/dev/<component>`. A component with no `dev/*` branch yet gets one created from `origin/main` first. Non-logic shared changes (see Git workflow) branch from `origin/main`.
+- **Always `git fetch origin` immediately before creating a branch and base it on the remote ref (`origin/<base>`)**, never on a local branch that may be stale.
+- Open feature PRs against the same `dev/<component>` the branch was cut from.
+
 ## Gotchas
 
 - `test_probability` is `uint64` and the gate is `counter%100 < TestProbability-1`, so `0` underflows and enables mirroring (#27).
