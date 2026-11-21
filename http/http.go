@@ -315,6 +315,9 @@ func (j *upstreamTestJob) Do() {
 				MainUpstreamStatusCode: j.mainRes.StatusCode,
 				TestUpstreamStatusCode: testRes.StatusCode,
 			})
+			if err != nil {
+				logging.L.Error("Error in logging the request into Storage", j.loggingFieldsWithError(err)...)
+			}
 			return
 		}
 	}
@@ -326,7 +329,7 @@ func (j *upstreamTestJob) Do() {
 	case "application/json", "application/ld+json":
 		responseSkipPath = true
 		comparator = JSONBytesEqual
-	// TODO: We didn't have time to implement it.
+	// TODO: Implement an XML comparator (xmlBytesEqual), see issue #32.
 	// case "application/xml", "application/xhtml+xml", "text/xml":
 	//	responseSkipPath = false
 	//	comparator = xmlBytesEqual
@@ -408,12 +411,6 @@ func JSONBytesEqual(a, b []byte) (bool, error) {
 	}
 
 	return reflect.DeepEqual(json2, json1), nil
-}
-
-// xmlBytesEqual compares the JSON in two byte slices.
-func xmlBytesEqual(a, b []byte) (bool, error) {
-	// TODO: Implement it in the future
-	return false, nil
 }
 
 func dummyBytesEqual(a, b []byte) (bool, error) {
