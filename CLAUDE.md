@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proksi HTTP is a single-binary reverse proxy for shadow testing (in development, NOT production-ready). Each request is forwarded synchronously to a `main` upstream; subject to a probability gate it is also mirrored to a `test` upstream, the two responses are compared, and mismatches are persisted to a storage backend (stdout or Elasticsearch).
 
+Proksi is a toolkit of per-protocol proxies. Only `http/` exists on `main`. `dev/redis` adds `redis/` (+ `internal/rediscluster`, with tests) and `dev/sql` adds a dummy `sql/`; each has its own `make build-*` target, `<component>/config.example.yaml` and `internal/config/<component>.go`. Check out the relevant `dev/*` branch before working on those.
+
 ## Commands
 
 ```sh
@@ -42,9 +44,9 @@ Config keys (YAML, snake_case): `bind`, `metrics.{enabled,bind}`, `storage_type`
 
 ## Gotchas
 
-- `test_probability` is `uint64` and the gate is `counter%100 < TestProbability-1`, so `0` underflows and enables mirroring.
-- The upstream `http.Client`s have no timeouts; request headers are shared by reference, and multi-value headers are collapsed into one `"[v1,v2]"` value.
-- `internal/metrics/http.go` has dead code (a standalone `func main()` and `recordMetrics()`); the real entry point is `InitializeHTTP`.
-- Version skew: `go.mod` says Go 1.18 (and CI uses it), while the Dockerfile builds with `golang:1.25.0`.
+- `test_probability` is `uint64` and the gate is `counter%100 < TestProbability-1`, so `0` underflows and enables mirroring (#27).
+- The upstream `http.Client`s have no timeouts (#28); request headers are shared by reference (#29); multi-value headers are collapsed into one `"[v1,v2]"` value (#1); a `panic` in the `skip_json_paths` loop can crash a worker (#30).
+- `internal/metrics/http.go` has dead code (a standalone `func main()` and `recordMetrics()`, #33); the real entry point is `InitializeHTTP`.
+- Version skew: `go.mod` says Go 1.18 (and CI uses it), while the Dockerfile builds with `golang:1.25.0` (#35). The XML comparator is a stub (#32).
 - The runtime image ships no config. It expects one mounted at `/usr/local/etc/config.yaml` (the Helm chart supplies it via ConfigMap). Local `config*.yaml` files are gitignored, except `http/config.example.yaml`.
 - Helm values in `.deploy/proksi/` use camelCase (`testProbability`, `skipJsonPaths`), while the app config uses snake_case.
