@@ -1,6 +1,6 @@
 module github.com/snapp-incubator/proksi
 
-go 1.18
+go 1.25.0
 
 require (
 	github.com/elastic/go-elasticsearch/v8 v8.3.0
