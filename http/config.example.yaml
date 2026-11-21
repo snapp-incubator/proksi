@@ -16,9 +16,19 @@ upstreams:
   # request will be the main upstream response
   main:
     address: "http://localhost:8080"
+    # Timeouts are Go durations (e.g. "500ms", "10s"); 0 disables a limit.
+    timeout: 30s                 # Total time limit of a request, including reading the response body
+    dial_timeout: 5s             # Time limit for establishing the TCP connection
+    tls_handshake_timeout: 5s    # Time limit for the TLS handshake
+    response_header_timeout: 20s # Time limit for receiving response headers after the request is sent
   # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
   test:
     address: "http://localhost:8081"
+    # Timeouts are Go durations (e.g. "500ms", "10s"); 0 disables a limit.
+    timeout: 30s                 # Total time limit of a request, including reading the response body
+    dial_timeout: 5s             # Time limit for establishing the TCP connection
+    tls_handshake_timeout: 5s    # Time limit for the TLS handshake
+    response_header_timeout: 20s # Time limit for receiving response headers after the request is sent
 
 # Worker pool configurations
 worker:

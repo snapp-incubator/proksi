@@ -24,9 +24,17 @@ data:
       # request will be the main upstream response
       main:
         address: {{ .Values.upstreams.main.url | quote }}
+        timeout: {{ .Values.upstreams.main.timeout | default "30s" }}
+        dial_timeout: {{ .Values.upstreams.main.dialTimeout | default "5s" }}
+        tls_handshake_timeout: {{ .Values.upstreams.main.tlsHandshakeTimeout | default "5s" }}
+        response_header_timeout: {{ .Values.upstreams.main.responseHeaderTimeout | default "20s" }}
       # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
       test:
         address: {{ .Values.upstreams.test.url | quote }}
+        timeout: {{ .Values.upstreams.test.timeout | default "30s" }}
+        dial_timeout: {{ .Values.upstreams.test.dialTimeout | default "5s" }}
+        tls_handshake_timeout: {{ .Values.upstreams.test.tlsHandshakeTimeout | default "5s" }}
+        response_header_timeout: {{ .Values.upstreams.test.responseHeaderTimeout | default "20s" }}
 
     # Worker pool configurations
     worker:

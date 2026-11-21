@@ -32,8 +32,8 @@ import (
 )
 
 var (
-	mainServiceClient = &http.Client{}
-	testServiceClient = &http.Client{}
+	mainServiceClient *http.Client
+	testServiceClient *http.Client
 
 	strg storage.Storage
 )
@@ -83,6 +83,9 @@ func main() {
 	if c.Upstreams.Test.Address == "" {
 		logging.L.Fatal("Test upstream backend can not be empty.")
 	}
+
+	mainServiceClient = newUpstreamClient(c.Upstreams.Main)
+	testServiceClient = newUpstreamClient(c.Upstreams.Test)
 
 	// Initialize storage backend based on configuration
 	switch c.StorageType {
@@ -238,7 +241,8 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	mainReq.Header = req.Header
+	reqHeader := req.Header.Clone()
+	mainReq.Header = stripHopByHop(req.Header.Clone())
 	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(req.Method, "main_upstream"))
 	mainRes, err := mainServiceClient.Do(mainReq)
 	t.ObserveDuration()
@@ -249,12 +253,10 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 	}
 
 	metrics.HTTPReqCounter.WithLabelValues(strconv.Itoa(mainRes.StatusCode), req.Method, "main_upstream").Inc()
-	// TODO: Array in HTTP header values (issue #1)
-	for headerKey, headerValue := range mainRes.Header {
-		if len(headerValue) == 1 {
-			writer.Header().Set(headerKey, headerValue[0])
-		} else {
-			writer.Header().Set(headerKey, "["+strings.Join(headerValue, ",")+"]")
+	// Preserve multi-value headers (issue #1) and drop hop-by-hop headers.
+	for headerKey, headerValues := range stripHopByHop(mainRes.Header.Clone()) {
+		for _, v := range headerValues {
+			writer.Header().Add(headerKey, v)
 		}
 	}
 
@@ -280,6 +282,7 @@ func (s *server) handle(writer http.ResponseWriter, req *http.Request) {
 		s.job <- &upstreamTestJob{
 			req:                    req,
 			requestID:              requestID,
+			reqHeader:              reqHeader,
 			reqBodyReader:          reqBodyReader,
 			loggingFieldsWithError: loggingFieldsWithError,
 			loggingFields:          loggingFields,
@@ -298,6 +301,7 @@ type Job interface {
 type upstreamTestJob struct {
 	req           *http.Request
 	requestID     string
+	reqHeader     http.Header // snapshot of the inbound headers, safe to read after the handler returns
 	reqBodyReader *bytes.Reader
 
 	loggingFieldsWithError func(err error) []zap.Field
@@ -320,7 +324,7 @@ func (j *upstreamTestJob) Do() {
 		return
 	}
 
-	testReq.Header = j.req.Header
+	testReq.Header = stripHopByHop(j.reqHeader.Clone())
 	t := prometheus.NewTimer(metrics.HTTPReqDuration.WithLabelValues(j.req.Method, "test_upstream"))
 	testRes, err := testServiceClient.Do(testReq)
 	t.ObserveDuration()
@@ -358,7 +362,7 @@ func (j *upstreamTestJob) Do() {
 		err = strg.Store(storage.Log{
 			RequestID:              j.requestID,
 			URL:                    j.req.URL.String(),
-			Headers:                j.req.Header,
+			Headers:                j.reqHeader,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
 		})
@@ -378,7 +382,7 @@ func (j *upstreamTestJob) Do() {
 			err = strg.Store(storage.Log{
 				RequestID:              j.requestID,
 				URL:                    j.req.URL.String(),
-				Headers:                j.req.Header,
+				Headers:                j.reqHeader,
 				MainUpstreamStatusCode: j.mainRes.StatusCode,
 				TestUpstreamStatusCode: testRes.StatusCode,
 			})
@@ -449,7 +453,7 @@ func (j *upstreamTestJob) Do() {
 		l := storage.Log{
 			RequestID:              j.requestID,
 			URL:                    j.req.URL.String(),
-			Headers:                j.req.Header,
+			Headers:                j.reqHeader,
 			MainUpstreamStatusCode: j.mainRes.StatusCode,
 			TestUpstreamStatusCode: testRes.StatusCode,
 		}
