@@ -208,3 +208,41 @@ func TestE2EConcurrentProbabilityGate(t *testing.T) {
 		t.Fatalf("test upstream hits = %d, want 50", got)
 	}
 }
+
+func TestE2EUpstreamAddressJoin(t *testing.T) {
+	for name, tc := range map[string]struct{ suffix, wantPath string }{
+		"trailing slash": {"/", "/x/y"},
+		"path prefix":    {"/base", "/base/x/y"},
+		"prefix + slash": {"/base/", "/base/x/y"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var mu sync.Mutex
+			got := map[string]string{}
+			rec := func(who string) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					got[who] = r.URL.RequestURI()
+					mu.Unlock()
+					respond(200, "text/plain", "ok")(w, r)
+				}
+			}
+			h := newHarness(t, rec("main"), rec("test"), func(c *config.HTTPConfig) {
+				c.Upstreams.Main.Address += tc.suffix
+				c.Upstreams.Test.Address += tc.suffix
+			})
+			res, err := http.Get(h.proxy.URL + "/x/y?q=1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = res.Body.Close()
+			h.drain()
+			mu.Lock()
+			defer mu.Unlock()
+			for _, who := range []string{"main", "test"} {
+				if want := tc.wantPath + "?q=1"; got[who] != want {
+					t.Errorf("%s upstream got %q, want %q", who, got[who], want)
+				}
+			}
+		})
+	}
+}
