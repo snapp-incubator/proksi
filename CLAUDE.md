@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proksi HTTP is a single-binary reverse proxy for shadow testing (in development, NOT production-ready). Each request is forwarded synchronously to a `main` upstream; subject to a probability gate it is also mirrored to a `test` upstream, the two responses are compared, and mismatches are persisted to a storage backend (stdout or Elasticsearch).
 
-Proksi is a toolkit of per-protocol proxies. Only `http/` exists on `main`. The `dev/redis` branch adds `redis/` (+ `internal/rediscluster`, with tests) and `dev/sql` adds a dummy `sql/`; each has its own `make build-*` target, `<component>/config.example.yaml` and `internal/config/<component>.go`. Those two are temporary feature branches (not integration branches) that get merged into `main` by PR once the component is usable; until then, branch from them for Redis/SQL work.
+Proksi is a toolkit of per-protocol proxies, all on `main`: `http/` (the product, released), `redis/` (+ `internal/rediscluster`, with tests) and a dummy `sql/` (no tests). Each has its own `make build-<component>` target, `<component>/config.example.yaml` and `internal/config/<component>.go`. The release workflow still builds one image for `vX.Y.Z` tags; only HTTP is released so far.
 
 ## Commands
 
@@ -40,7 +40,7 @@ Trunk-based: `main` is the only long-lived branch.
 - `main` is always releasable and green. Feature branches are short-lived, cut from `origin/main`, PR'd back into `main` and **squash-merged**. No merge commits, no back-merges.
 - Releases are tags on `main` (`vX.Y.Z` for HTTP); a tag push runs the `test` workflow, then builds and publishes the Docker image and Helm chart. `main` may contain unreleased changes: the latest tag, not `main`, is what is released.
 - Hotfix: if `main` has moved on and an old release needs a fix, branch from the release tag (`hotfix/vX.Y.Z`), PR it, tag from that branch, then port the fix to `main`. Delete the hotfix branch afterwards.
-- Unfinished components (`dev/redis`, `dev/sql`) are ordinary feature branches. Keep them up to date with `main` and PR them into `main` when ready; do not add new `dev/*` branches.
+- Components that are not ready (Redis, SQL, future ones) still land on `main` through short-lived feature branches; do not add long-lived `dev/*` branches.
 - **Nothing is pushed directly to `main`; everything lands through a pull request** (enforced by a GitHub ruleset). That includes docs, `.gitignore`, CI and repo config.
 - The `test` CI check (`go test` + golangci-lint, config in `.golangci.yml`, version pinned in `.github/workflows/test.yaml`) is required on `main`. The `main` ruleset blocks deletion and force-push. "Delete branch on merge" is enabled, so merged feature branches are removed automatically. Never disable the deletion rule on `main`.
 - Tag scheme: HTTP releases use `vX.Y.Z` (existing tags). When another component is first released, use `<component>/vX.Y.Z` for it and scope the release workflow by tag prefix.
@@ -50,11 +50,11 @@ Trunk-based: `main` is the only long-lived branch.
 - **Always work in a git worktree**, never by switching branches in the primary checkout, so several agents can work on the repo at once. Create it as a sibling of the repo (not inside it):
   `git fetch origin && git worktree add ../proksi-worktrees/<branch> -b <branch> origin/<base>`
   Remove it with `git worktree remove` once the branch is merged.
-- **Base branch:** everything branches from `origin/main`, except work on a component that has not landed on `main` yet (Redis: `origin/dev/redis`, SQL: `origin/dev/sql`), which branches from and PRs into that branch.
+- **Base branch:** always `origin/main`, for every component.
 - **Always `git fetch origin` immediately before creating a branch and base it on the remote ref (`origin/<base>`)**, never on a local branch that may be stale.
 - Open feature PRs against the branch they were cut from (normally `main`) and squash-merge them.
 
-- **Track every issue you find as a GitHub issue, not in documentation.** Bugs, gaps, missing tests, tech debt and follow-ups noticed while working (even in code you are not touching) go in a ticket created with `gh issue create` (label `bug` or `enhancement`; search `gh issue list` first to avoid duplicates). Do not record known bugs or TODOs in CLAUDE.md, the README or code comments, and do not leave `t.Skip` reasons without an issue number. Reference the ticket from the PR. Use `Closes #N` in the PR description so merging into `main` closes the issue; for PRs into a non-default branch (e.g. `dev/redis`) GitHub will not auto-close, so close them manually with a comment linking the PR.
+- **Track every issue you find as a GitHub issue, not in documentation.** Bugs, gaps, missing tests, tech debt and follow-ups noticed while working (even in code you are not touching) go in a ticket created with `gh issue create` (label `bug` or `enhancement`; search `gh issue list` first to avoid duplicates). Do not record known bugs or TODOs in CLAUDE.md, the README or code comments, and do not leave `t.Skip` reasons without an issue number. Reference the ticket from the PR. Use `Closes #N` in the PR description so merging into `main` closes the issue; if a PR targets a non-default branch GitHub will not auto-close, so close the issue manually with a comment linking the PR.
 
 ## Gotchas
 
