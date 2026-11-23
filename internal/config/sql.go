@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/structs"
@@ -43,6 +44,8 @@ type Backend struct {
 
 // LoadSQL function will load the file located in path and return the parsed config. This function will panic on errors
 func LoadSQL(path string) *SQLConfig {
+	k := koanf.New(".")
+
 	// Load default config in the beginning
 	err := k.Load(structs.Provider(defaultSQL, "koanf"), nil)
 	if err != nil {
