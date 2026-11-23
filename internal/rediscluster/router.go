@@ -18,9 +18,9 @@ type DialFunc func(addr string) (net.Conn, error)
 type Router struct {
 	dial DialFunc
 
-	mu      sync.RWMutex
-	masters []string // masters[slot] = "host:port" of the master owning that slot
-	fallback string  // address used for keyless commands and as a dial seed
+	mu       sync.RWMutex
+	masters  []string // masters[slot] = "host:port" of the master owning that slot
+	fallback string   // address used for keyless commands and as a dial seed
 }
 
 // NewRouter loads the cluster topology by issuing CLUSTER SLOTS against one of

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/structs"
@@ -45,7 +46,7 @@ type RedisConfig struct {
 }
 
 type RedisUpstream struct {
-	Address string              `koanf:"address"`
+	Address string               `koanf:"address"`
 	Cluster RedisClusterUpstream `koanf:"cluster"`
 }
 
@@ -59,6 +60,8 @@ type RedisClusterUpstream struct {
 
 // LoadRedis function will load the file located in path and return the parsed config for ProksiRedis. This function will panic on errors
 func LoadRedis(path string) *RedisConfig {
+	k := koanf.New(".")
+
 	// Load default config in the beginning
 	err := k.Load(structs.Provider(defaultRedis, "koanf"), nil)
 	if err != nil {
