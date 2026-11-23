@@ -1,6 +1,10 @@
 # HTTP server bind address to serve Proksi
 bind: "0.0.0.0:9090"
 
+# Log level for application logging
+# Options: debug, info, warn, error, fatal
+log_level: "info"
+
 # Config of exposing Prometheus metrics
 metrics:
   enabled: true
@@ -15,10 +19,21 @@ upstreams:
   # main is the upstream that we are sure about its behavior and its response will be the criterion. The response of the
   # request will be the main upstream response
   main:
+    # A path prefix is allowed (e.g. "http://host:8080/base"); trailing slashes are trimmed.
     address: "http://localhost:8080"
+    # Timeouts are Go durations (e.g. "500ms", "10s"); 0 disables a limit.
+    timeout: 30s                 # Total time limit of a request, including reading the response body
+    dial_timeout: 5s             # Time limit for establishing the TCP connection
+    tls_handshake_timeout: 5s    # Time limit for the TLS handshake
+    response_header_timeout: 20s # Time limit for receiving response headers after the request is sent
   # test is the upstream that we want to test its behavior. Its response will be compared to the main upstream response
   test:
     address: "http://localhost:8081"
+    # Timeouts are Go durations (e.g. "500ms", "10s"); 0 disables a limit.
+    timeout: 30s                 # Total time limit of a request, including reading the response body
+    dial_timeout: 5s             # Time limit for establishing the TCP connection
+    tls_handshake_timeout: 5s    # Time limit for the TLS handshake
+    response_header_timeout: 20s # Time limit for receiving response headers after the request is sent
 
 # Worker pool configurations
 worker:
@@ -27,7 +42,7 @@ worker:
 
 # Elasticsearch storage config params
 elasticsearch:
-  addresses: [ "127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
+  addresses: [ "http://127.0.0.1:9200"]  # A list of Elasticsearch nodes to use.
   username: ""                    # Username for HTTP Basic Authentication.
   password: ""                    # Password for HTTP Basic Authentication.
   cloud_id: ""                    # Endpoint for the Elastic Service (https://elastic.co/cloud).
@@ -50,3 +65,54 @@ log_response_payload: true
 
 # Indicates whether to compare response headers between main and test upstreams or not.
 compare_headers: true
+
+# Global configuration that applies to all routes (unless overridden)
+global_config:
+  compare_headers: true                    # Compare response headers by default
+  skip_headers: ["Date", "Server"]         # Headers to ignore during comparison
+  store_req_body: false                    # Store request body when responses differ
+  store_resp_bodies: true                  # Store response bodies when they differ
+  skip_json_paths: []                      # JSON paths to ignore during comparison
+  test_probability: 100                    # Percentage of requests to send to test upstream
+
+# Routes to completely skip (no test upstream call or comparison)
+skip_routes:
+  - "GET:/health"                          # Skip health checks
+  - "GET:/metrics"                           # Skip metrics endpoints
+
+# Per-route configuration overrides
+# Note: For boolean route-specific overrides, use semantic keywords:
+#   - "enable" to explicitly enable a feature for this route
+#   - "disable" to explicitly disable a feature for this route  
+#   - omit the field to inherit from global_config
+# test_probability is a number (0-100): omit it to inherit, 0 disables mirroring for the route
+route_configs:
+  "POST:/api/v1/cities":                   # Exact route match
+    compare_headers: disable               # Disable header comparison for this route
+    store_req_body: enable                 # Store request body for debugging
+    skip_headers: ["X-Request-ID"]         # Additional headers to skip
+
+  "GET:/api/v1/users/*":                   # Wildcard path matching
+    skip_headers: ["Authorization", "Cookie"] # Skip sensitive headers
+    test_probability: 50                   # Only test 50% of user requests
+    skip_json_paths: ["timestamp", "user.last_login"]
+
+  "*:/api/v2/*":                           # Method wildcard with path pattern
+    store_req_body: enable                 # Store all v2 API request bodies
+    store_resp_bodies: disable             # But don't store response bodies
+
+  "GET:/api/v1/orders/*/items":            # Route parameter matching
+    skip_headers: ["Order-Token"]          # Skip order-specific headers
+    test_probability: 75                   # Test 75% of order item requests
+
+  "POST:/api/v1/users/*/posts/*":          # Multiple route parameters
+    store_req_body: enable                 # Store request bodies for user posts
+    skip_json_paths: ["user.id", "post.internal_id"]
+
+# Example of different patterns:
+# - "GET:/exact/path" - exact match for GET /exact/path
+# - "POST:/api/v1/*" - match POST requests to any path under /api/v1/
+# - "*:/health" - match any method to /health
+# - "GET:/users/[0-9]*" - match GET requests to /users/123 etc (Go path.Match syntax)
+# - "GET:/api/v1/orders/*/items" - match route with single parameter (e.g. /api/v1/orders/123/items)
+# - "POST:/api/v1/users/*/posts/*" - match route with multiple parameters (e.g. /api/v1/users/456/posts/789)
